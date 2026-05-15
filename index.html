@@ -1,0 +1,2107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover" />
+  <title>Church Management System</title>
+  <link id="app-favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2218%22 fill=%22%230f766e%22/%3E%3Cpath d=%22M32 12v40M22 22h20%22 stroke=%22white%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M16 52h32%22 stroke=%22%23facc15%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+  <style>
+    :root {
+      --theme-primary: #0f766e;
+      --theme-primary-dark: #115e59;
+      --theme-primary-soft: #f0fdfa;
+      --theme-bg: #f8fafc;
+      --theme-header-bg: rgba(255,255,255,.94);
+      --theme-card-bg: #ffffff;
+      --theme-text-strong: #134e4a;
+      --theme-header-accent: #ccfbf1;
+      --theme-header-text: #0f172a;
+      --theme-footer-bg: #111827;
+      --theme-footer-text: #e5e7eb;
+      --theme-footer-accent: #facc15;
+      --theme-font-family: 'Inter', sans-serif;
+      --theme-border: rgba(15,23,42,.09);
+    }
+    * { font-family: var(--theme-font-family); letter-spacing: 0; }
+    body { background: var(--theme-bg); }
+    .sticky-header { position: sticky; top: 0; z-index: 40; backdrop-filter: blur(10px); background: var(--theme-header-bg); border-bottom: 1px solid var(--theme-border); color: var(--theme-header-text); box-shadow: 0 10px 24px rgba(15,23,42,.07); }
+    .system-footer { background: var(--theme-footer-bg); color: var(--theme-footer-text); border-top: 1px solid rgba(255,255,255,.12); }
+    .card { background: var(--theme-card-bg); border: 1px solid var(--theme-border); border-radius: .75rem; box-shadow: 0 8px 26px rgba(15,23,42,.06); }
+    .input, .select, .textarea { width: 100%; border: 1px solid #d1d5db; border-radius: .7rem; padding: .65rem .78rem; background: white; color: #0f172a; }
+    .textarea { min-height: 92px; }
+    .btn { border-radius: .7rem; padding: .62rem .95rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: .45rem; min-height: 40px; }
+    .btn-primary { background: var(--theme-primary); color: white; }
+    .btn-primary:hover { background: var(--theme-primary-dark); }
+    .btn-secondary { background: #e5e7eb; color: #111827; }
+    .btn-outline { border: 1px solid #d1d5db; background: white; color: #111827; }
+    .btn-danger { background: #dc2626; color: white; }
+    .pill { border-radius: 999px; padding: .22rem .62rem; font-size: .72rem; font-weight: 800; display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; }
+    .present, .active, .paid, .fulfilled { background: #dcfce7; color: #166534; }
+    .late, .open, .planned { background: #fef3c7; color: #92400e; }
+    .absent, .inactive, .closed, .cancelled { background: #fee2e2; color: #991b1b; }
+    .neutral { background: #e0f2fe; color: #075985; }
+    .table-wrap { overflow: auto; }
+    th, td { white-space: nowrap; }
+    .cell-wrap { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .sidebar-scroll { max-height: calc(100vh - 84px); overflow: auto; }
+    .modal-backdrop { background: rgba(2,6,23,.48); }
+    .grid-fit { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+    .toast-stack { position: fixed; top: 84px; right: 16px; z-index: 90; display: flex; flex-direction: column; gap: .75rem; }
+    .toast { min-width: 280px; max-width: 420px; border-radius: .85rem; padding: .9rem 1rem; box-shadow: 0 18px 38px rgba(15,23,42,.16); border: 1px solid #e5e7eb; background: white; }
+    .toast-success { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+    .toast-error { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+    .toast-info { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+    .busy-backdrop { position: fixed; inset: 0; background: rgba(255,255,255,.55); z-index: 80; display: flex; align-items: center; justify-content: center; }
+    .busy-card { background: white; border: 1px solid #e5e7eb; border-radius: .85rem; padding: 1rem 1.25rem; box-shadow: 0 18px 38px rgba(15,23,42,.14); display: flex; align-items: center; gap: .85rem; }
+    .spinner { width: 22px; height: 22px; border-radius: 999px; border: 3px solid #99f6e4; border-top-color: #0f766e; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white; }
+      .card { box-shadow: none !important; }
+    }
+    @media (max-width: 640px) {
+      body { font-size: 14px; }
+      .grid-fit { grid-template-columns: 1fr; }
+      .table-wrap table { min-width: 820px; }
+      .toast-stack { left: 10px; right: 10px; top: 76px; }
+      .toast { min-width: 0; max-width: none; }
+      .btn { padding: .58rem .82rem; }
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased">
+  <div id="root"></div>
+
+<script type="text/babel">
+const SUPABASE_URL = 'https://nzhcngwyttwrndvaxhvl.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_L23gyL2aX60oD48Ktbm1OA_O-BsL8LY';
+const hasSupabaseCreds = !SUPABASE_URL.includes('YOUR_') && !SUPABASE_ANON_KEY.includes('YOUR_');
+const supabase = hasSupabaseCreds ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const offlineStore = localforage.createInstance({ name: 'church_mgmt_final_v1' });
+const DATA_KEY = 'church_management_data_v1';
+const SESSION_KEY = 'church_management_session_v1';
+
+const ROLE_LABELS = {
+  superadmin: 'Super Admin',
+  admin: 'Church Admin',
+  senior_pastor: 'Senior Pastor',
+  pastor: 'Pastor',
+  ministry_leader: 'Ministry Leader',
+  finance_officer: 'Finance Officer',
+  member: 'Member'
+};
+const ROLE_OPTIONS = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label })).filter(x => x.value !== 'superadmin');
+const GENDERS = ['Male', 'Female'];
+const MEMBER_STATUSES = ['Active', 'New Convert', 'Visitor', 'Inactive', 'Transferred', 'Deceased'];
+const MARITAL_STATUSES = ['Single', 'Married', 'Widowed', 'Divorced'];
+const ACCOUNT_STATUS = ['Active', 'Inactive'];
+const SERVICE_TYPES = ['Sunday Service', 'Midweek Service', 'Prayer Meeting', 'Bible Study', 'Youth Service', 'Special Program'];
+const ATTENDANCE_STATUS = ['Present', 'Absent', 'Excused', 'Online'];
+const REQUEST_TYPES = ['Prayer', 'Counseling', 'Hospital Visit', 'Bereavement', 'Welfare', 'Discipleship', 'Other'];
+const PRIORITIES = ['Low', 'Normal', 'High', 'Urgent'];
+const REQUEST_STATUSES = ['Open', 'Assigned', 'In Progress', 'Closed'];
+const PAYMENT_METHODS = ['Cash', 'Mobile Money', 'Bank Transfer', 'Cheque', 'Card', 'Other'];
+const EVENT_STATUSES = ['Planned', 'Open', 'Completed', 'Cancelled'];
+const VOLUNTEER_STATUSES = ['Scheduled', 'Confirmed', 'Served', 'Absent', 'Cancelled'];
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const PRAYER_PRIVACY_OPTIONS = ['Prayer Team', 'Pastors Only', 'Private', 'Public Testimony'];
+const CERTIFICATE_TYPES = ['Membership', 'Baptism', 'Child Dedication', 'Leadership Appointment', 'Marriage Blessing'];
+const DOCUMENT_TYPES = ['Constitution', 'Meeting Minutes', 'Financial Document', 'Policy', 'Report', 'Certificate', 'Official Letter', 'Other'];
+const WELFARE_TYPES = ['Cash', 'Food', 'Medical', 'Rent', 'Education', 'Transport', 'Counseling Support', 'Other'];
+const WELFARE_STATUSES = ['Requested', 'Approved', 'Released', 'Closed', 'Declined'];
+const ANNOUNCEMENT_AUDIENCES = ['All Members', 'Leaders', 'Workers', 'Youth Ministry', 'Women Ministry', 'Men Ministry', 'Choir', 'Visitors'];
+const ANNOUNCEMENT_CHANNELS = ['Notice Board', 'WhatsApp', 'SMS', 'Email', 'Sunday Announcement'];
+const ANNOUNCEMENT_STATUSES = ['Draft', 'Published', 'Archived'];
+const REMINDER_TYPES = ['Birthday', 'Wedding Anniversary', 'Membership Anniversary', 'Pastoral Follow-up', 'Meeting', 'Other'];
+const REMINDER_STATUSES = ['Pending', 'Done', 'Cancelled'];
+const DAILY_VERSES = [
+  'Psalm 23:1 - The Lord is my shepherd; I shall not want.',
+  'Philippians 4:13 - I can do all things through Christ who strengthens me.',
+  'Jeremiah 29:11 - The Lord knows the plans He has for you, plans of peace and hope.',
+  'Proverbs 3:5 - Trust in the Lord with all your heart and lean not on your own understanding.',
+  'Psalm 46:1 - God is our refuge and strength, a very present help in trouble.',
+  'Isaiah 40:31 - Those who wait upon the Lord shall renew their strength.',
+  'Matthew 6:33 - Seek first the kingdom of God and His righteousness.',
+  'Romans 8:28 - All things work together for good to those who love God.',
+  'John 3:16 - God so loved the world that He gave His only begotten Son.',
+  'Psalm 118:24 - This is the day the Lord has made; we will rejoice and be glad in it.',
+  'Joshua 1:9 - Be strong and courageous, for the Lord your God is with you.',
+  '2 Corinthians 5:7 - We walk by faith, not by sight.',
+  'Psalm 119:105 - Your word is a lamp to my feet and a light to my path.',
+  'Isaiah 41:10 - Fear not, for I am with you; I will strengthen you and help you.',
+  'Matthew 11:28 - Come to Me, all who labor and are heavy laden, and I will give you rest.',
+  '1 Peter 5:7 - Cast all your care upon Him, for He cares for you.',
+  'Psalm 34:8 - Taste and see that the Lord is good.',
+  'John 14:27 - Peace I leave with you; My peace I give to you.',
+  'Romans 12:12 - Rejoice in hope, be patient in tribulation, continue in prayer.',
+  'Galatians 6:9 - Do not grow weary in doing good, for in due season we shall reap.',
+  'Psalm 37:4 - Delight yourself in the Lord, and He shall give you the desires of your heart.',
+  'Ephesians 3:20 - God is able to do exceeding abundantly above all that we ask or think.',
+  "Lamentations 3:22-23 - The Lord's mercies are new every morning; great is His faithfulness.",
+  'Hebrews 11:1 - Faith is the substance of things hoped for, the evidence of things not seen.',
+  'James 1:5 - If anyone lacks wisdom, let him ask God, who gives generously.',
+  'Psalm 91:1 - He who dwells in the secret place of the Most High shall abide under His shadow.',
+  'Colossians 3:23 - Whatever you do, do it heartily as unto the Lord.',
+  '1 Thessalonians 5:16-18 - Rejoice always, pray without ceasing, and give thanks in everything.',
+  'Deuteronomy 31:6 - Be strong and of good courage; the Lord will not forsake you.',
+  'Psalm 121:1-2 - My help comes from the Lord, who made heaven and earth.',
+  'Micah 6:8 - Do justice, love mercy, and walk humbly with your God.',
+  'John 15:5 - I am the vine; you are the branches. Without Me you can do nothing.',
+  'Romans 15:13 - May the God of hope fill you with all joy and peace in believing.',
+  'Psalm 27:1 - The Lord is my light and my salvation; whom shall I fear?',
+  'Isaiah 26:3 - You will keep in perfect peace the one whose mind is stayed on You.',
+  'Matthew 5:16 - Let your light so shine before others that they may glorify your Father.',
+  '2 Timothy 1:7 - God has not given us a spirit of fear, but of power, love, and sound mind.',
+  'Psalm 100:4 - Enter His gates with thanksgiving and His courts with praise.',
+  'Ephesians 6:10 - Be strong in the Lord and in the power of His might.',
+  '1 John 4:19 - We love because He first loved us.',
+  'Psalm 55:22 - Cast your burden on the Lord, and He shall sustain you.',
+  'Mark 10:27 - With God all things are possible.',
+  'Romans 10:17 - Faith comes by hearing, and hearing by the word of God.',
+  'Psalm 19:14 - Let the words of my mouth and the meditation of my heart be acceptable to You.',
+  'Isaiah 43:2 - When you pass through the waters, I will be with you.',
+  'Matthew 7:7 - Ask, and it shall be given; seek, and you shall find.',
+  '1 Corinthians 13:13 - Now abide faith, hope, and love; but the greatest of these is love.',
+  'Psalm 145:18 - The Lord is near to all who call upon Him in truth.',
+  'Hebrews 13:8 - Jesus Christ is the same yesterday, today, and forever.',
+  'Proverbs 18:10 - The name of the Lord is a strong tower; the righteous run to it and are safe.',
+  'John 8:36 - If the Son makes you free, you shall be free indeed.',
+  'Romans 5:8 - God demonstrates His love for us in that Christ died for us.',
+  'Psalm 103:2 - Bless the Lord, O my soul, and forget not all His benefits.',
+  'Isaiah 54:17 - No weapon formed against you shall prosper.',
+  'Matthew 28:20 - I am with you always, even to the end of the age.',
+  '2 Corinthians 12:9 - My grace is sufficient for you, for My strength is made perfect in weakness.',
+  'Psalm 16:11 - In Your presence is fullness of joy.',
+  'Philippians 4:6 - Be anxious for nothing, but in everything by prayer and thanksgiving make your requests known to God.',
+  '1 Peter 2:9 - You are a chosen generation, a royal priesthood, and a holy nation.',
+  'Psalm 30:5 - Weeping may endure for a night, but joy comes in the morning.'
+];
+function localDateKey(date=new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+function getDayOfYear(date=new Date()) {
+  const start = new Date(date.getFullYear(), 0, 0);
+  return Math.floor((date - start) / 86400000);
+}
+function getAutoVerseOfTheDay(date=new Date()) {
+  return DAILY_VERSES[(Math.max(1, getDayOfYear(date)) - 1) % DAILY_VERSES.length];
+}
+function ensureDailyVerseSettings(settings={}) {
+  const todayKey = localDateKey();
+  const autoDailyVerse = settings.auto_daily_verse !== false;
+  if (!autoDailyVerse) return { ...settings, auto_daily_verse: false };
+  return { ...settings, auto_daily_verse: true, daily_verse_date: todayKey, verse_of_day: getAutoVerseOfTheDay() };
+}
+const THEME_OPTIONS = {
+  teal: { label: 'Teal', primary: '#0f766e', primaryDark: '#115e59', primarySoft: '#f0fdfa', bg: '#f8fafc', textStrong: '#134e4a' },
+  emerald: { label: 'Emerald', primary: '#059669', primaryDark: '#047857', primarySoft: '#ecfdf5', bg: '#f8fafc', textStrong: '#065f46' },
+  blue: { label: 'Blue', primary: '#2563eb', primaryDark: '#1d4ed8', primarySoft: '#eff6ff', bg: '#f8fbff', textStrong: '#1d4ed8' },
+  indigo: { label: 'Indigo', primary: '#4f46e5', primaryDark: '#4338ca', primarySoft: '#eef2ff', bg: '#f8faff', textStrong: '#3730a3' },
+  purple: { label: 'Purple', primary: '#7c3aed', primaryDark: '#6d28d9', primarySoft: '#f5f3ff', bg: '#faf8ff', textStrong: '#6d28d9' },
+  amber: { label: 'Amber', primary: '#d97706', primaryDark: '#b45309', primarySoft: '#fffbeb', bg: '#fffdf7', textStrong: '#92400e' },
+  rose: { label: 'Rose', primary: '#e11d48', primaryDark: '#be123c', primarySoft: '#fff1f2', bg: '#fff8f8', textStrong: '#9f1239' },
+  charcoalGold: { label: 'Charcoal Gold', primary: '#1f2937', primaryDark: '#111827', primarySoft: '#fef3c7', bg: '#fafafa', textStrong: '#111827' }
+};
+const FONT_OPTIONS = {
+  inter: { label: 'Inter', family: "'Inter', sans-serif" },
+  poppins: { label: 'Poppins', family: "'Poppins', sans-serif" },
+  montserrat: { label: 'Montserrat', family: "'Montserrat', sans-serif" },
+  nunito: { label: 'Nunito', family: "'Nunito', sans-serif" },
+  merriweather: { label: 'Merriweather', family: "'Merriweather', serif" }
+};
+const TABLES = {
+  ministers: 'church_ministers',
+  financeOfficers: 'church_finance_officers',
+  households: 'church_households',
+  ministries: 'church_ministries',
+  members: 'church_members',
+  memberMinistries: 'church_member_ministries',
+  services: 'church_services',
+  attendance: 'church_attendance',
+  visitors: 'church_visitors',
+  careRequests: 'church_care_requests',
+  pastoralVisits: 'church_pastoral_visits',
+  events: 'church_events',
+  eventRegistrations: 'church_event_registrations',
+  volunteerSchedules: 'church_volunteer_schedules',
+  funds: 'church_funds',
+  giving: 'church_giving',
+  pledges: 'church_pledges',
+  expenses: 'church_expenses',
+  certificates: 'church_certificates',
+  documents: 'church_documents',
+  welfareRecords: 'church_welfare_records',
+  announcements: 'church_announcements',
+  reminders: 'church_reminders',
+  credentials: 'church_user_credentials',
+  chats: 'church_chat_messages',
+  presenceRows: 'church_presence_status'
+};
+const COLLECTION_KEYS = Object.keys(TABLES);
+const ID = {
+  minister1: '00000000-0000-4000-8000-000000000101',
+  minister2: '00000000-0000-4000-8000-000000000102',
+  finance1: '00000000-0000-4000-8000-000000000201',
+  household1: '00000000-0000-4000-8000-000000000301',
+  household2: '00000000-0000-4000-8000-000000000302',
+  ministry1: '00000000-0000-4000-8000-000000000401',
+  ministry2: '00000000-0000-4000-8000-000000000402',
+  ministry3: '00000000-0000-4000-8000-000000000403',
+  member1: '00000000-0000-4000-8000-000000000501',
+  member2: '00000000-0000-4000-8000-000000000502',
+  member3: '00000000-0000-4000-8000-000000000503',
+  fund1: '00000000-0000-4000-8000-000000000601',
+  fund2: '00000000-0000-4000-8000-000000000602',
+  fund3: '00000000-0000-4000-8000-000000000603',
+  fund4: '00000000-0000-4000-8000-000000000604',
+  service1: '00000000-0000-4000-8000-000000000701',
+  giving1: '00000000-0000-4000-8000-000000000801',
+  giving2: '00000000-0000-4000-8000-000000000802'
+};
+
+const defaultChurch = {
+  id: 1,
+  church_name: 'Grace Community Church',
+  address: 'Church Office',
+  contact: '+233 000 000 000',
+  location: 'Main Campus',
+  logo_url: '',
+  theme_choice: 'teal',
+  header_theme_choice: 'softWhite',
+  footer_theme_choice: 'midnight',
+  login_background_url: '',
+  font_choice: 'inter',
+  general_overseer_name: 'General Overseer',
+  general_overseer_signature_url: '',
+  general_overseer_signature_scale: 135,
+  verse_of_day: getAutoVerseOfTheDay(),
+  daily_verse_date: localDateKey(),
+  auto_daily_verse: true,
+  audio_greeting_enabled: false,
+  login_greeting_template: 'Welcome {firstName}, you may proceed.',
+  logout_greeting_message: 'Goodbye. Grace and peace.',
+  failed_login_greeting_message: 'Login failed. Please verify your church account details.',
+  platform_access_locked: false,
+  admin_access_locked: false
+};
+
+function today() { return new Date().toISOString().slice(0, 10); }
+function nowIso() { return new Date().toISOString(); }
+function uid() { return window.crypto?.randomUUID ? window.crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
+function clone(value) { return JSON.parse(JSON.stringify(value)); }
+function safeArray(value) { return Array.isArray(value) ? value : []; }
+function boolValue(value) { return value === true || value === 'true' || value === 'Yes'; }
+function money(value) { return `GHS ${Number(value || 0).toFixed(2)}`; }
+function escapeHtml(value='') {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function rawCellText(row, col) {
+  const key = col.key || col;
+  const value = row?.[key];
+  if (Array.isArray(value)) return value.join(', ');
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return value ?? '';
+}
+function exportRowsToCsv(filename, columns=[], rows=[]) {
+  if (!rows.length) return;
+  const csvRows = [columns.map(col => col.label || col.key || col)];
+  rows.forEach(row => csvRows.push(columns.map(col => rawCellText(row, col))));
+  const csv = csvRows.map(row => row.map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+}
+function printRows(title='Records', columns=[], rows=[]) {
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title><style>body{font-family:Arial,sans-serif;color:#0f172a;margin:24px}h1{font-size:22px;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #cbd5e1;padding:6px;text-align:left;vertical-align:top}th{background:#f1f5f9;font-weight:800}</style></head><body><h1>${escapeHtml(title)}</h1><table><thead><tr>${columns.map(col => `<th>${escapeHtml(col.label || col.key || col)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map(col => `<td>${escapeHtml(rawCellText(row, col))}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`;
+  const win = window.open('', '_blank', 'width=1100,height=850');
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { try { win.print(); } catch (e) {} }, 120);
+}
+function statusClass(value='') {
+  const key = String(value).toLowerCase();
+  if (/(active|present|paid|fulfilled|served|confirmed|completed|online)/.test(key)) return 'present';
+  if (/(inactive|absent|cancelled|closed|deceased|transferred)/.test(key)) return 'absent';
+  if (/(open|planned|assigned|progress|new|part|scheduled|visitor)/.test(key)) return 'late';
+  return 'neutral';
+}
+function optionRows(rows=[], labelKey='name') {
+  return safeArray(rows).map(row => ({ value: row.id, label: row[labelKey] || row.full_name || row.name || row.title || row.id }));
+}
+function nameBy(rows=[], id='', key='full_name') {
+  return safeArray(rows).find(row => row.id === id)?.[key] || '';
+}
+function memberName(data, id) { return nameBy(data.members, id, 'full_name') || 'Unassigned'; }
+function ministerName(data, id) { return nameBy(data.ministers, id, 'full_name') || 'Unassigned'; }
+function ministryName(data, id) { return nameBy(data.ministries, id, 'name') || 'Unassigned'; }
+function fundName(data, id) { return nameBy(data.funds, id, 'name') || 'Unassigned'; }
+function serviceLabel(data, id) {
+  const svc = safeArray(data.services).find(x => x.id === id);
+  return svc ? `${svc.service_name} (${svc.service_date})` : 'Unassigned';
+}
+function sumBy(rows, key) { return safeArray(rows).reduce((sum, row) => sum + Number(row[key] || 0), 0); }
+function generatedPrefix(churchName, type) {
+  const letters = String(churchName || 'CHURCH').replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase() || 'CHC';
+  return `${letters}-${type}-`;
+}
+function nextSequence(rows, key, start=1) {
+  const max = safeArray(rows).reduce((n, row) => {
+    const m = String(row[key] || '').match(/(\d+)$/);
+    return Math.max(n, m ? Number(m[1]) : 0);
+  }, 0);
+  return Math.max(start, max + 1);
+}
+function applyTheme(settings={}) {
+  const theme = THEME_OPTIONS[settings.theme_choice] || THEME_OPTIONS.teal;
+  const root = document.documentElement;
+  root.style.setProperty('--theme-primary', theme.primary);
+  root.style.setProperty('--theme-primary-dark', theme.primaryDark);
+  root.style.setProperty('--theme-primary-soft', theme.primarySoft);
+  root.style.setProperty('--theme-bg', theme.bg);
+  root.style.setProperty('--theme-text-strong', theme.textStrong);
+  root.style.setProperty('--theme-header-accent', theme.primarySoft);
+  root.style.setProperty('--theme-footer-accent', theme.primary);
+  const font = FONT_OPTIONS[settings.font_choice] || FONT_OPTIONS.inter;
+  root.style.setProperty('--theme-font-family', font.family);
+  document.title = settings.church_name || 'Church Management System';
+  const favicon = document.getElementById('app-favicon');
+  if (favicon && settings.logo_url) favicon.href = settings.logo_url;
+}
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = event => resolve(event.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+function cleanPathName(value='file') {
+  return String(value || 'file').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'file';
+}
+function validateImageFile(file) {
+  if (!file) throw new Error('No file selected.');
+  if (!String(file.type || '').startsWith('image/')) throw new Error('Only image files are allowed.');
+  if (file.size > 2 * 1024 * 1024) throw new Error('Image must be 2MB or less.');
+}
+async function uploadImageToStorage(file, folder='general') {
+  validateImageFile(file);
+  if (!supabase?.storage) return fileToDataUrl(file);
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+  const path = `${cleanPathName(folder)}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from('church-media').upload(path, file, { upsert: false, cacheControl: '3600' });
+  if (uploadError) throw uploadError;
+  const { data } = supabase.storage.from('church-media').getPublicUrl(path);
+  if (!data?.publicUrl) throw new Error('Image uploaded, but no public URL was returned.');
+  return data.publicUrl;
+}
+function validateGeneralFile(file) {
+  if (!file) throw new Error('No file selected.');
+  if (file.size > 8 * 1024 * 1024) throw new Error('File must be 8MB or less.');
+}
+async function uploadFileToStorage(file, folder='documents') {
+  validateGeneralFile(file);
+  if (!supabase?.storage) return fileToDataUrl(file);
+  const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
+  const path = `${cleanPathName(folder)}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from('church-media').upload(path, file, { upsert: false, cacheControl: '3600' });
+  if (uploadError) throw uploadError;
+  const { data } = supabase.storage.from('church-media').getPublicUrl(path);
+  if (!data?.publicUrl) throw new Error('File uploaded, but no public URL was returned.');
+  return data.publicUrl;
+}
+function loadImageElement(src='') {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image.'));
+    img.src = src;
+  });
+}
+async function buildZoomedImageFile(sourceDataUrl='', { zoom=1, offsetX=0, offsetY=0, outputWidth=1600, outputHeight=900, filename='edited-image.png' } = {}) {
+  const img = await loadImageElement(sourceDataUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = outputWidth;
+  canvas.height = outputHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, outputWidth, outputHeight);
+  const baseScale = Math.max(outputWidth / img.width, outputHeight / img.height);
+  const finalScale = baseScale * Math.max(0.3, Number(zoom || 1));
+  const drawWidth = img.width * finalScale;
+  const drawHeight = img.height * finalScale;
+  const drawX = ((outputWidth - drawWidth) / 2) + Number(offsetX || 0);
+  const drawY = ((outputHeight - drawHeight) / 2) + Number(offsetY || 0);
+  ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+  if (!blob) throw new Error('Failed to prepare image.');
+  return new File([blob], filename, { type: 'image/png' });
+}
+function defaultData() {
+  const serviceDate = today();
+  return normalizeData({
+    churchSettings: defaultChurch,
+    ministers: [
+      { id: ID.minister1, full_name: 'Rev. Daniel Mensah', title: 'Senior Pastor', phone: '+233 240 000 101', email: 'seniorpastor@church.local', pastoral_area: 'Main Campus', photo_url: '', account_active: true },
+      { id: ID.minister2, full_name: 'Pastor Akua Boateng', title: 'Associate Pastor', phone: '+233 240 000 102', email: 'pastor@church.local', pastoral_area: 'Care and Discipleship', photo_url: '', account_active: true }
+    ],
+    financeOfficers: [
+      { id: ID.finance1, full_name: 'Michael Osei', phone: '+233 240 000 201', email: 'finance@church.local', office_title: 'Finance Officer', photo_url: '', account_active: true }
+    ],
+    households: [
+      { id: ID.household1, family_name: 'Asare Family', primary_phone: '+233 240 000 301', address: 'Community 8', home_area: 'East Zone', notes: '' },
+      { id: ID.household2, family_name: 'Owusu Family', primary_phone: '+233 240 000 302', address: 'Community 3', home_area: 'West Zone', notes: '' }
+    ],
+    ministries: [
+      { id: ID.ministry1, name: 'Worship Ministry', category: 'Worship', leader_member_id: ID.member1, leader_minister_id: ID.minister2, meeting_day: 'Thursday', description: 'Choir, instruments, and worship planning.', active: true },
+      { id: ID.ministry2, name: 'Ushering Ministry', category: 'Hospitality', leader_member_id: ID.member2, leader_minister_id: '', meeting_day: 'Saturday', description: 'Guest welcome, seating, and order.', active: true },
+      { id: ID.ministry3, name: 'Youth Ministry', category: 'Discipleship', leader_member_id: ID.member3, leader_minister_id: ID.minister2, meeting_day: 'Friday', description: 'Youth discipleship and outreach.', active: true }
+    ],
+    members: [
+      { id: ID.member1, member_number: 'GCC-MEM-00001', full_name: 'Abena Asare', gender: 'Female', dob: '', phone: '+233 240 000 501', email: 'abena@church.local', address: 'Community 8', household_id: ID.household1, primary_ministry_id: ID.ministry1, marital_status: 'Single', membership_status: 'Active', joined_date: '2023-01-10', baptism_date: '', photo_url: '', account_active: true },
+      { id: ID.member2, member_number: 'GCC-MEM-00002', full_name: 'Kwame Owusu', gender: 'Male', dob: '', phone: '+233 240 000 502', email: 'kwame@church.local', address: 'Community 3', household_id: ID.household2, primary_ministry_id: ID.ministry2, marital_status: 'Married', membership_status: 'Active', joined_date: '2022-02-14', baptism_date: '', photo_url: '', account_active: true },
+      { id: ID.member3, member_number: 'GCC-MEM-00003', full_name: 'Esi Boateng', gender: 'Female', dob: '', phone: '+233 240 000 503', email: 'esi@church.local', address: '', household_id: '', primary_ministry_id: ID.ministry3, marital_status: 'Single', membership_status: 'New Convert', joined_date: today(), baptism_date: '', photo_url: '', account_active: true }
+    ],
+    memberMinistries: [
+      { id: uid(), member_id: ID.member1, ministry_id: ID.ministry1, role_title: 'Vocalist', joined_at: '2023-02-01', active: true },
+      { id: uid(), member_id: ID.member2, ministry_id: ID.ministry2, role_title: 'Team Member', joined_at: '2022-03-01', active: true },
+      { id: uid(), member_id: ID.member3, ministry_id: ID.ministry3, role_title: 'Youth Leader', joined_at: today(), active: true }
+    ],
+    services: [
+      { id: ID.service1, service_name: 'Sunday Celebration Service', service_type: 'Sunday Service', service_date: serviceDate, start_time: '09:00', end_time: '', preacher_minister_id: ID.minister1, topic: 'Faithfulness in Service', expected_attendance: 250, notes: '' }
+    ],
+    attendance: [
+      { id: uid(), service_id: ID.service1, member_id: ID.member1, status: 'Present', checked_in_at: nowIso(), recorded_by: ID.minister2, notes: '' },
+      { id: uid(), service_id: ID.service1, member_id: ID.member2, status: 'Present', checked_in_at: nowIso(), recorded_by: ID.minister2, notes: '' }
+    ],
+    visitors: [
+      { id: uid(), service_id: ID.service1, full_name: 'Nana Yeboah', phone: '+233 240 000 701', email: '', invited_by_member_id: ID.member1, first_visit_date: serviceDate, follow_up_status: 'New', notes: 'Interested in youth fellowship.' }
+    ],
+    careRequests: [
+      { id: uid(), member_id: ID.member3, request_type: 'Discipleship', priority: 'Normal', status: 'Assigned', assigned_minister_id: ID.minister2, request_text: 'New convert follow-up class.', private_notes: '', requested_at: nowIso(), closed_at: '' }
+    ],
+    pastoralVisits: [
+      { id: uid(), member_id: ID.member2, minister_id: ID.minister2, visit_type: 'Home Visit', visit_date: today(), summary: 'Family check-in completed.', next_follow_up_date: '', status: 'Completed' }
+    ],
+    events: [
+      { id: uid(), title: 'Youth Worship Night', ministry_id: ID.ministry3, event_date: today(), start_time: '18:00', end_time: '', venue: 'Main Auditorium', budget: 1200, status: 'Open', description: '' }
+    ],
+    eventRegistrations: [],
+    volunteerSchedules: [
+      { id: uid(), event_id: '', service_id: ID.service1, ministry_id: ID.ministry2, member_id: ID.member2, role_title: 'Lead Usher', schedule_date: serviceDate, status: 'Confirmed', notes: '' }
+    ],
+    funds: [
+      { id: ID.fund1, name: 'Tithe', description: 'Regular tithe giving.', active: true },
+      { id: ID.fund2, name: 'Offering', description: 'General worship service giving.', active: true },
+      { id: ID.fund3, name: 'Missions', description: 'Missions, outreach, and evangelism support.', active: true },
+      { id: ID.fund4, name: 'Building Fund', description: 'Capital and facility projects.', active: true }
+    ],
+    giving: [
+      { id: ID.giving1, member_id: ID.member1, fund_id: ID.fund1, giving_date: serviceDate, amount: 250, payment_method: 'Mobile Money', reference: '', recorded_by_finance_id: ID.finance1, notes: 'Starter record' },
+      { id: ID.giving2, member_id: ID.member2, fund_id: ID.fund2, giving_date: serviceDate, amount: 150, payment_method: 'Cash', reference: '', recorded_by_finance_id: ID.finance1, notes: 'Starter record' }
+    ],
+    pledges: [
+      { id: uid(), member_id: ID.member1, fund_id: ID.fund4, pledge_date: today(), pledge_amount: 1000, amount_received: 250, due_date: '', status: 'Part Paid', notes: '' }
+    ],
+    expenses: [
+      { id: uid(), fund_id: ID.fund2, expense_date: today(), vendor: 'Utility Provider', purpose: 'Electricity bill', amount: 80, payment_method: 'Bank Transfer', approved_by_minister_id: ID.minister1, recorded_by_finance_id: ID.finance1, notes: '' }
+    ],
+    certificates: [],
+    documents: [],
+    welfareRecords: [],
+    announcements: [
+      { id: uid(), title: 'Sunday Celebration Service', audience: 'All Members', channel: 'Sunday Announcement', publish_date: today(), status: 'Published', message: 'Sunday worship service starts at 9:00 AM.', created_at: nowIso(), updated_at: nowIso() }
+    ],
+    reminders: [],
+    credentials: [
+      { id: '00000000-0000-4000-8000-000000000901', role: 'admin', linked_entity_type: '', linked_entity_id: '', username: 'admin', temporary_password: 'admin12345', force_password_change: false, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000902', role: 'senior_pastor', linked_entity_type: 'minister', linked_entity_id: ID.minister1, username: 'senior.pastor', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000903', role: 'pastor', linked_entity_type: 'minister', linked_entity_id: ID.minister2, username: 'pastor', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000904', role: 'finance_officer', linked_entity_type: 'finance_officer', linked_entity_id: ID.finance1, username: 'finance', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000905', role: 'ministry_leader', linked_entity_type: 'member', linked_entity_id: ID.member3, username: 'leader', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000906', role: 'member', linked_entity_type: 'member', linked_entity_id: ID.member1, username: 'member', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true }
+    ],
+    chats: [],
+    presenceRows: []
+  });
+}
+function normalizeData(raw={}) {
+  const base = { churchSettings: defaultChurch };
+  COLLECTION_KEYS.forEach(key => { base[key] = []; });
+  const merged = { ...base, ...raw };
+  merged.churchSettings = ensureDailyVerseSettings({ ...defaultChurch, ...(raw.churchSettings || raw.church_settings || {}) });
+  COLLECTION_KEYS.forEach(key => { merged[key] = safeArray(raw[key]); });
+  merged.presence = {};
+  safeArray(merged.presenceRows).forEach(row => {
+    const key = row.role;
+    merged.presence[key] = { online: !!row.is_online, last_seen: row.last_seen };
+  });
+  return merged;
+}
+function cleanForTable(table, row) {
+  const next = { ...row };
+  if (table === 'church_pledges') delete next.balance;
+  delete next.presence;
+  return next;
+}
+async function fetchSupabaseData() {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const { data: settings, error: settingsError } = await supabase.from('church_settings').select('*').eq('id', 1).maybeSingle();
+  if (settingsError) throw settingsError;
+  const loaded = { churchSettings: settings || defaultChurch };
+  for (const [key, table] of Object.entries(TABLES)) {
+    const { data, error } = await supabase.from(table).select('*');
+    if (error) throw error;
+    loaded[key] = data || [];
+  }
+  return normalizeData(loaded);
+}
+async function syncSimpleTable(table, prevItems=[], nextItems=[]) {
+  if (!supabase) return;
+  const prevIds = new Set(safeArray(prevItems).map(x => x.id).filter(Boolean));
+  const nextIds = new Set(safeArray(nextItems).map(x => x.id).filter(Boolean));
+  const deletedIds = [...prevIds].filter(id => !nextIds.has(id));
+  if (deletedIds.length) {
+    const { error } = await supabase.from(table).delete().in('id', deletedIds);
+    if (error) throw error;
+  }
+  const rows = safeArray(nextItems).map(row => cleanForTable(table, row));
+  if (rows.length) {
+    const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
+    if (error) throw error;
+  }
+}
+async function syncSettings(settings) {
+  if (!supabase) return;
+  const { error } = await supabase.from('church_settings').upsert({ ...ensureDailyVerseSettings(settings), id: 1 }, { onConflict: 'id' });
+  if (error) throw error;
+}
+async function syncAll(data) {
+  await syncSettings(data.churchSettings);
+  for (const key of COLLECTION_KEYS) await syncSimpleTable(TABLES[key], [], data[key]);
+}
+async function persistOffline(data) {
+  await offlineStore.setItem(DATA_KEY, clone(data));
+}
+async function loadOffline() {
+  return normalizeData((await offlineStore.getItem(DATA_KEY)) || defaultData());
+}
+
+const DataContext = React.createContext(null);
+const SessionContext = React.createContext(null);
+
+function DataProvider({ children }) {
+  const [data, setData] = React.useState(defaultData());
+  const [loaded, setLoaded] = React.useState(false);
+  const [busyText, setBusyText] = React.useState('');
+  const [notifications, setNotifications] = React.useState([]);
+  const [offlineState, setOfflineState] = React.useState({ mode: supabase ? 'syncing' : 'offline', pendingCount: 0, lastSyncAt: '', lastError: '' });
+
+  const notify = React.useCallback((type, message) => {
+    const id = uid();
+    setNotifications(list => [{ id, type, message }, ...list].slice(0, 5));
+    setTimeout(() => setNotifications(list => list.filter(item => item.id !== id)), 5200);
+  }, []);
+  const dismissNotification = id => setNotifications(list => list.filter(item => item.id !== id));
+
+  const reloadData = React.useCallback(async ({ silent=false } = {}) => {
+    if (!silent) setBusyText('Loading church records...');
+    try {
+      const remote = await fetchSupabaseData();
+      setData(remote);
+      await persistOffline(remote);
+      setOfflineState(state => ({ ...state, mode: 'online', lastSyncAt: nowIso(), lastError: '' }));
+    } catch (error) {
+      const offline = await loadOffline();
+      setData(offline);
+      setOfflineState(state => ({ ...state, mode: 'offline', lastError: error?.message || 'Offline data loaded.' }));
+      if (!silent) notify('info', 'Local church records loaded.');
+    } finally {
+      setLoaded(true);
+      setBusyText('');
+    }
+  }, [notify]);
+
+  React.useEffect(() => { reloadData(); }, [reloadData]);
+  React.useEffect(() => { applyTheme(data.churchSettings); }, [data.churchSettings]);
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setData(prev => {
+        const nextSettings = ensureDailyVerseSettings(prev.churchSettings);
+        if (nextSettings.verse_of_day === prev.churchSettings.verse_of_day && nextSettings.daily_verse_date === prev.churchSettings.daily_verse_date) return prev;
+        const nextData = normalizeData({ ...prev, churchSettings: nextSettings });
+        persistOffline(nextData);
+        return nextData;
+      });
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const updateCollection = React.useCallback(async (key, updater, options={}) => {
+    const prevData = data;
+    const prevItems = safeArray(prevData[key]);
+    const nextItems = typeof updater === 'function' ? updater(prevItems) : safeArray(updater);
+    const nextData = normalizeData({ ...prevData, [key]: nextItems });
+    setData(nextData);
+    await persistOffline(nextData);
+    if (!options.suppressBusy) setBusyText(options.busyText || 'Saving record...');
+    try {
+      await syncSimpleTable(TABLES[key], prevItems, nextItems);
+      setOfflineState(state => ({ ...state, mode: supabase ? 'online' : 'offline', lastSyncAt: supabase ? nowIso() : state.lastSyncAt, lastError: '' }));
+      if (!options.silentSuccess) notify('success', options.successMessage || 'Record saved successfully.');
+    } catch (error) {
+      setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: state.pendingCount + 1, lastError: error?.message || 'Sync failed.' }));
+      notify('info', options.offlineMessage || 'Saved locally. Sync is pending.');
+    } finally {
+      setBusyText('');
+    }
+  }, [data, notify]);
+
+  const setChurchSettings = React.useCallback(async updater => {
+    const nextSettings = ensureDailyVerseSettings(typeof updater === 'function' ? updater(data.churchSettings) : updater);
+    const nextData = normalizeData({ ...data, churchSettings: { ...data.churchSettings, ...nextSettings, id: 1 } });
+    setData(nextData);
+    await persistOffline(nextData);
+    setBusyText('Saving church settings...');
+    try {
+      await syncSettings(nextData.churchSettings);
+      setOfflineState(state => ({ ...state, mode: supabase ? 'online' : 'offline', lastSyncAt: supabase ? nowIso() : state.lastSyncAt, lastError: '' }));
+      notify('success', 'Church settings saved successfully.');
+    } catch (error) {
+      setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: state.pendingCount + 1, lastError: error?.message || 'Sync failed.' }));
+      notify('info', 'Settings saved locally. Sync is pending.');
+    } finally {
+      setBusyText('');
+    }
+  }, [data, notify]);
+
+  const flushPendingChanges = React.useCallback(async () => {
+    setBusyText('Syncing pending church records...');
+    try {
+      await syncAll(data);
+      setOfflineState(state => ({ ...state, mode: supabase ? 'online' : 'offline', pendingCount: 0, lastSyncAt: supabase ? nowIso() : state.lastSyncAt, lastError: '' }));
+      notify('success', 'Pending records synced successfully.');
+    } catch (error) {
+      setOfflineState(state => ({ ...state, mode: 'offline', lastError: error?.message || 'Sync failed.' }));
+      notify('error', error?.message || 'Sync failed.');
+    } finally {
+      setBusyText('');
+    }
+  }, [data, notify]);
+
+  const setPresenceStatus = React.useCallback(async (role, linkedId, isOnline) => {
+    if (!role || !linkedId) return;
+    await updateCollection('presenceRows', rows => {
+      const idx = safeArray(rows).findIndex(row => row.role === role && row.linked_entity_id === linkedId);
+      const payload = { id: idx >= 0 ? rows[idx].id : uid(), role, linked_entity_id: linkedId, is_online: !!isOnline, last_seen: nowIso() };
+      return idx >= 0 ? rows.map((row, i) => i === idx ? { ...row, ...payload } : row) : [payload, ...rows];
+    }, { silentSuccess: true, suppressBusy: true });
+  }, [updateCollection]);
+
+  const value = { data, loaded, updateCollection, setChurchSettings, reloadData, notify, notifications, dismissNotification, busyText, offlineState, flushPendingChanges, setPresenceStatus };
+  return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
+}
+
+function ToastStack({ notifications, onDismiss }) {
+  return <div className="toast-stack no-print">{notifications.map(n => <button key={n.id} onClick={() => onDismiss(n.id)} className={`toast text-left toast-${n.type || 'info'}`}><div className="font-bold capitalize">{n.type}</div><div className="text-sm mt-1">{n.message}</div></button>)}</div>;
+}
+function BusyOverlay({ text }) {
+  if (!text) return null;
+  return <div className="busy-backdrop no-print"><div className="busy-card"><div className="spinner"></div><div className="font-bold text-slate-700">{text}</div></div></div>;
+}
+function OfflineBanner({ state, onSync }) {
+  if (state.mode === 'online' && !state.pendingCount) return null;
+  return <div className="no-print border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+    <div><b>{state.mode === 'online' ? 'Pending sync' : 'Local mode'}</b>{state.lastError ? ` - ${state.lastError}` : ''}{state.pendingCount ? ` - ${state.pendingCount} pending change(s)` : ''}</div>
+    <button className="btn btn-outline !py-1.5" onClick={onSync}><i className="fas fa-rotate"></i>Sync Now</button>
+  </div>;
+}
+function Field({ label, children }) {
+  return <div className="block"><span className="block text-sm font-bold text-slate-700 mb-1.5">{label}</span>{children}</div>;
+}
+function ImageUploadInput({ value='', onChange, folder='general', shape='rounded-xl' }) {
+  const { notify } = React.useContext(DataContext);
+  const [uploading, setUploading] = React.useState(false);
+  const handleFile = async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadImageToStorage(file, folder);
+      onChange(url);
+      notify('success', 'Image uploaded successfully.');
+    } catch (error) {
+      try {
+        const fallback = await fileToDataUrl(file);
+        onChange(fallback);
+        notify('info', 'Image saved locally.');
+      } catch (_) {
+        notify('error', error?.message || 'Image upload failed.');
+      }
+    } finally {
+      event.target.value = '';
+      setUploading(false);
+    }
+  };
+  return <div className="flex items-center gap-3">
+    {value ? <img src={value} className={`w-16 h-16 object-cover border bg-white ${shape}`} /> : <div className={`w-16 h-16 border bg-slate-50 flex items-center justify-center text-slate-400 ${shape}`}><i className="fas fa-image"></i></div>}
+    <div className="flex flex-wrap gap-2">
+      <label className={`btn btn-outline cursor-pointer ${uploading ? 'opacity-70 pointer-events-none' : ''}`}><i className={`fas ${uploading ? 'fa-spinner fa-spin' : 'fa-upload'}`}></i>{uploading ? 'Uploading' : 'Upload'}<input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={handleFile} /></label>
+      {value && <button type="button" className="btn btn-secondary" onClick={() => onChange('')}><i className="fas fa-xmark"></i>Remove</button>}
+    </div>
+  </div>;
+}
+function FileUploadInput({ value='', onChange, folder='documents' }) {
+  const { notify } = React.useContext(DataContext);
+  const [uploading, setUploading] = React.useState(false);
+  const handleFile = async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadFileToStorage(file, folder);
+      onChange(url);
+      notify('success', 'File uploaded successfully.');
+    } catch (error) {
+      try {
+        const fallback = await fileToDataUrl(file);
+        onChange(fallback);
+        notify('info', 'File saved locally.');
+      } catch (_) {
+        notify('error', error?.message || 'File upload failed.');
+      }
+    } finally {
+      event.target.value = '';
+      setUploading(false);
+    }
+  };
+  return <div className="flex flex-wrap items-center gap-2">
+    {value && <a className="btn btn-outline" href={value} target="_blank" rel="noreferrer"><i className="fas fa-file-lines"></i>Open</a>}
+    <label className={`btn btn-outline cursor-pointer ${uploading ? 'opacity-70 pointer-events-none' : ''}`}><i className={`fas ${uploading ? 'fa-spinner fa-spin' : 'fa-upload'}`}></i>{uploading ? 'Uploading' : 'Upload'}<input type="file" className="hidden" disabled={uploading} onChange={handleFile} /></label>
+    {value && <button type="button" className="btn btn-secondary" onClick={() => onChange('')}><i className="fas fa-xmark"></i>Remove</button>}
+  </div>;
+}
+function LoginBackgroundEditorInput({ value='', onChange, folder='login-background' }) {
+  const { data, notify } = React.useContext(DataContext);
+  const previewRef = React.useRef(null);
+  const dragRef = React.useRef({ active: false, startX: 0, startY: 0, startOffsetX: 0, startOffsetY: 0 });
+  const [open, setOpen] = React.useState(false);
+  const [sourceDataUrl, setSourceDataUrl] = React.useState('');
+  const [zoom, setZoom] = React.useState(1);
+  const [offset, setOffset] = React.useState({ x: 0, y: 0 });
+  const [processing, setProcessing] = React.useState(false);
+  const clampOffset = React.useCallback((nextOffset, nextZoom=zoom) => {
+    const box = previewRef.current;
+    if (!box) return { x: Number(nextOffset?.x || 0), y: Number(nextOffset?.y || 0) };
+    const width = box.clientWidth || 0;
+    const height = box.clientHeight || 0;
+    const maxX = Math.max(0, ((width * Number(nextZoom || 1)) - width) / 2);
+    const maxY = Math.max(0, ((height * Number(nextZoom || 1)) - height) / 2);
+    return { x: Math.max(-maxX, Math.min(maxX, Number(nextOffset?.x || 0))), y: Math.max(-maxY, Math.min(maxY, Number(nextOffset?.y || 0))) };
+  }, [zoom]);
+  const resetEditor = React.useCallback(() => { setZoom(1); setOffset({ x: 0, y: 0 }); }, []);
+  const updateZoom = value => {
+    const nextZoom = Math.max(0.3, Math.min(3, Number(value || 1)));
+    setZoom(nextZoom);
+    setOffset(prev => clampOffset(prev, nextZoom));
+  };
+  const openEditor = async file => {
+    validateImageFile(file);
+    const dataUrl = await fileToDataUrl(file);
+    setSourceDataUrl(dataUrl);
+    resetEditor();
+    setOpen(true);
+  };
+  const applyEditedImage = async () => {
+    if (!sourceDataUrl) return;
+    setProcessing(true);
+    try {
+      const editedFile = await buildZoomedImageFile(sourceDataUrl, { zoom, offsetX: offset.x, offsetY: offset.y, outputWidth: 1600, outputHeight: 900, filename: 'church-login-background.png' });
+      try {
+        const uploadedUrl = await uploadImageToStorage(editedFile, folder);
+        onChange(uploadedUrl);
+      } catch (_) {
+        onChange(await fileToDataUrl(editedFile));
+      }
+      notify('success', 'Login background saved successfully.');
+      setOpen(false);
+    } catch (error) {
+      notify('error', error?.message || 'Failed to save image.');
+    } finally {
+      setProcessing(false);
+    }
+  };
+  const pointerDown = event => {
+    if (!sourceDataUrl) return;
+    dragRef.current = { active: true, startX: event.clientX, startY: event.clientY, startOffsetX: offset.x, startOffsetY: offset.y };
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch (e) {}
+  };
+  const pointerMove = event => {
+    if (!dragRef.current.active) return;
+    setOffset(clampOffset({ x: dragRef.current.startOffsetX + event.clientX - dragRef.current.startX, y: dragRef.current.startOffsetY + event.clientY - dragRef.current.startY }));
+  };
+  const pointerStop = event => {
+    dragRef.current.active = false;
+    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch (e) {}
+  };
+  const previewImage = sourceDataUrl || value;
+  const previewStyle = previewImage ? { backgroundImage: `linear-gradient(rgba(15,23,42,.45), rgba(15,23,42,.32)), url(${previewImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : { background: 'linear-gradient(135deg,#0f172a,#0f766e)' };
+  return <div className="space-y-3">
+    <div className="flex flex-wrap items-center gap-3">
+      {value ? <img src={value} className="w-24 h-16 rounded-xl object-cover border bg-white" /> : <div className="w-24 h-16 rounded-xl border bg-slate-50 flex items-center justify-center text-slate-400"><i className="fas fa-image"></i></div>}
+      <label className="btn btn-outline cursor-pointer"><i className="fas fa-upload"></i>Upload<input type="file" accept="image/*" className="hidden" onChange={async e => { const file = e.target.files?.[0]; if (!file) return; try { await openEditor(file); } catch (error) { notify('error', error?.message || 'Image upload failed.'); } finally { e.target.value = ''; } }} /></label>
+      {value && <button type="button" className="btn btn-secondary" onClick={() => onChange('')}><i className="fas fa-xmark"></i>Remove</button>}
+    </div>
+    <div className="rounded-xl overflow-hidden border aspect-[16/7] min-h-[132px] relative" style={previewStyle}>
+      <div className="absolute inset-0 flex items-center px-5 text-white">
+        <div>{data.churchSettings.logo_url ? <img src={data.churchSettings.logo_url} className="w-11 h-11 rounded-xl object-cover bg-white border border-white/20 mb-3" /> : <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center mb-3"><i className="fas fa-church"></i></div>}<div className="text-xl font-extrabold leading-tight">{data.churchSettings.church_name}</div></div>
+      </div>
+    </div>
+    <Modal open={open} title="Login Background" onClose={() => !processing && setOpen(false)}>
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" className="btn btn-outline" onClick={() => updateZoom(Number((zoom - 0.1).toFixed(2)))} disabled={processing || zoom <= 0.3}><i className="fas fa-magnifying-glass-minus"></i>Zoom Out</button>
+          <input type="range" min="0.3" max="3" step="0.05" value={zoom} onChange={e => updateZoom(e.target.value)} disabled={processing} className="flex-1 min-w-[220px]" />
+          <button type="button" className="btn btn-outline" onClick={() => updateZoom(Number((zoom + 0.1).toFixed(2)))} disabled={processing || zoom >= 3}><i className="fas fa-magnifying-glass-plus"></i>Zoom In</button>
+          <div className="btn btn-secondary">{Math.round(zoom * 100)}%</div>
+          <button type="button" className="btn btn-outline" onClick={resetEditor} disabled={processing}><i className="fas fa-rotate-left"></i>Reset</button>
+        </div>
+        <div ref={previewRef} className="aspect-[16/9] w-full relative overflow-hidden rounded-xl bg-slate-950 touch-none select-none cursor-grab active:cursor-grabbing" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerStop} onPointerCancel={pointerStop} onPointerLeave={pointerStop}>
+          {sourceDataUrl && <img src={sourceDataUrl} draggable="false" className="absolute inset-0 w-full h-full object-cover transition-transform duration-75" style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, transformOrigin: 'center center' }} />}
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/70 via-slate-900/30 to-white/30"></div>
+          <div className="absolute left-8 top-1/2 -translate-y-1/2 text-white">{data.churchSettings.logo_url ? <img src={data.churchSettings.logo_url} className="w-14 h-14 rounded-xl object-cover bg-white border border-white/20 mb-4" /> : <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center mb-4"><i className="fas fa-church"></i></div>}<div className="text-3xl font-extrabold max-w-md leading-tight">{data.churchSettings.church_name}</div></div>
+          <div className="absolute right-8 top-1/2 -translate-y-1/2 w-64 rounded-2xl bg-white/90 backdrop-blur p-5 shadow-2xl"><div className="h-10 w-10 rounded-xl bg-slate-100 mx-auto mb-4 flex items-center justify-center text-[color:var(--theme-primary)]"><i className="fas fa-church"></i></div><div className="h-3 bg-slate-200 rounded mb-3"></div><div className="h-3 bg-slate-200 rounded mb-5"></div><div className="h-10 rounded-xl bg-[var(--theme-primary)]"></div></div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn btn-secondary" disabled={processing} onClick={() => setOpen(false)}>Cancel</button>
+          <button type="button" className="btn btn-primary" disabled={processing} onClick={applyEditedImage}><i className={`fas ${processing ? 'fa-spinner fa-spin' : 'fa-check'}`}></i>{processing ? 'Saving' : 'Apply'}</button>
+        </div>
+      </div>
+    </Modal>
+  </div>;
+}
+function Modal({ open, title, onClose, children }) {
+  if (!open) return null;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center p-3 modal-backdrop no-print">
+    <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-auto">
+      <div className="sticky top-0 bg-white border-b px-5 py-4 flex justify-between items-center">
+        <h2 className="font-extrabold text-lg">{title}</h2>
+        <button className="w-10 h-10 rounded-lg hover:bg-slate-100" onClick={onClose} aria-label="Close"><i className="fas fa-times"></i></button>
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  </div>;
+}
+function SectionHeader({ title, subtitle='', actions=null }) {
+  return <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h2 className="text-xl md:text-2xl font-extrabold text-slate-900">{title}</h2>
+      {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
+    </div>
+    {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+  </div>;
+}
+function StatCard({ label, value, icon='chart-line', accent='teal' }) {
+  const color = accent === 'amber' ? 'text-amber-700 bg-amber-50' : accent === 'rose' ? 'text-rose-700 bg-rose-50' : accent === 'blue' ? 'text-blue-700 bg-blue-50' : accent === 'purple' ? 'text-purple-700 bg-purple-50' : 'text-teal-700 bg-teal-50';
+  return <div className="card p-4 min-h-[112px] flex items-center justify-between gap-3">
+    <div className="min-w-0"><div className="text-xs font-extrabold uppercase text-slate-400">{label}</div><div className="text-2xl font-extrabold mt-2 break-words">{value}</div></div>
+    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${color}`}><i className={`fas fa-${icon}`}></i></div>
+  </div>;
+}
+function EmptyState({ text='No records available.' }) {
+  return <div className="card p-8 text-center text-slate-500 font-semibold">{text}</div>;
+}
+function Table({ columns=[], rows=[], renderActions=null }) {
+  const [search, setSearch] = React.useState('');
+  const [page, setPage] = React.useState(1);
+  const pageSize = 12;
+  const visibleRows = React.useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const base = term ? rows.filter(row => JSON.stringify(row).toLowerCase().includes(term)) : rows;
+    return base;
+  }, [rows, search]);
+  const pageCount = Math.max(1, Math.ceil(visibleRows.length / pageSize));
+  React.useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
+  const pageRows = visibleRows.slice((page - 1) * pageSize, page * pageSize);
+  const cols = renderActions ? [...columns, { key: '__actions', label: 'Actions', render: renderActions }] : columns;
+  return <div className="space-y-3">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <input className="input sm:max-w-xs" placeholder="Search records..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+      <div className="flex flex-wrap items-center gap-2"><button type="button" className="btn btn-outline !py-2" onClick={() => exportRowsToCsv('church-records.csv', columns, visibleRows)} disabled={!visibleRows.length}><i className="fas fa-file-csv"></i>CSV</button><button type="button" className="btn btn-outline !py-2" onClick={() => printRows('Church Records', columns, visibleRows)} disabled={!visibleRows.length}><i className="fas fa-print"></i>Print</button><div className="text-sm font-semibold text-slate-500">{visibleRows.length} record(s)</div></div>
+    </div>
+    <div className="table-wrap rounded-xl border bg-white">
+      <table className="min-w-full text-sm">
+        <thead className="bg-slate-50 text-slate-600">
+          <tr>{cols.map(col => <th key={col.key || col} className="text-left px-4 py-3 font-extrabold">{col.label || col}</th>)}</tr>
+        </thead>
+        <tbody>
+          {pageRows.length ? pageRows.map(row => <tr key={row.id || JSON.stringify(row)} className="border-t hover:bg-slate-50">
+            {cols.map(col => {
+              const key = col.key || col;
+              const val = col.render ? col.render(row) : row[key];
+              return <td key={key} className="px-4 py-3 align-top">{React.isValidElement(val) ? val : <span className="cell-wrap">{val ?? ''}</span>}</td>;
+            })}
+          </tr>) : <tr><td className="px-4 py-8 text-center text-slate-500" colSpan={cols.length}>No matching records.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+    <div className="flex justify-end gap-2">
+      <button className="btn btn-outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</button>
+      <span className="btn btn-secondary">{page} / {pageCount}</span>
+      <button className="btn btn-outline" disabled={page >= pageCount} onClick={() => setPage(p => Math.min(pageCount, p + 1))}>Next</button>
+    </div>
+  </div>;
+}
+function renderFormControl(field, form, setForm, data) {
+  const value = form[field.name] ?? '';
+  const update = next => setForm({ ...form, [field.name]: next });
+  if (field.type === 'select') {
+    const options = typeof field.options === 'function' ? field.options(data, form) : field.options || [];
+    return <select className="select" required={field.required} value={value || ''} onChange={e => update(e.target.value)}>
+      <option value="">{field.placeholder || 'Select'}</option>
+      {options.map(opt => typeof opt === 'string' ? <option key={opt} value={opt}>{opt}</option> : <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+    </select>;
+  }
+  if (field.type === 'textarea') return <textarea className="textarea" rows={field.rows || 3} required={field.required} value={value || ''} onChange={e => update(e.target.value)} />;
+  if (field.type === 'checkbox') return <label className="inline-flex items-center gap-2 font-semibold"><input type="checkbox" checked={!!value} onChange={e => update(e.target.checked)} /> {field.checkboxLabel || 'Enabled'}</label>;
+  if (field.type === 'image') return <ImageUploadInput value={value || ''} folder={field.folder || field.name || 'general'} shape={field.shape || 'rounded-xl'} onChange={update} />;
+  if (field.type === 'file') return <FileUploadInput value={value || ''} folder={field.folder || field.name || 'documents'} onChange={update} />;
+  return <input className="input" type={field.type || 'text'} min={field.min} step={field.step} required={field.required} value={value || ''} onChange={e => update(field.type === 'number' ? e.target.value : e.target.value)} />;
+}
+function CrudManager({ title, subtitle='', collectionKey, columns, fields, emptyRecord, preparePayload, filterRows, initialPatch={} }) {
+  const { data, updateCollection, notify } = React.useContext(DataContext);
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState({ ...emptyRecord, ...initialPatch });
+  const rows = React.useMemo(() => {
+    const list = safeArray(data[collectionKey]);
+    return filterRows ? list.filter(row => filterRows(row, data)) : list;
+  }, [data, collectionKey, filterRows]);
+  const startAdd = () => { setForm({ ...emptyRecord, ...initialPatch }); setOpen(true); };
+  const edit = row => { setForm({ ...emptyRecord, ...row }); setOpen(true); };
+  const remove = async row => {
+    if (!window.confirm(`Delete ${title.toLowerCase()} record?`)) return;
+    await updateCollection(collectionKey, items => safeArray(items).filter(item => item.id !== row.id), { successMessage: 'Record deleted successfully.' });
+  };
+  const save = async event => {
+    event.preventDefault();
+    try {
+      const base = { ...form, id: form.id || uid(), updated_at: nowIso() };
+      if (!form.id) base.created_at = nowIso();
+      const payload = preparePayload ? await preparePayload(base, data) : base;
+      await updateCollection(collectionKey, items => safeArray(items).some(item => item.id === payload.id) ? safeArray(items).map(item => item.id === payload.id ? payload : item) : [payload, ...safeArray(items)]);
+      setOpen(false);
+      setForm({ ...emptyRecord, ...initialPatch });
+    } catch (error) {
+      notify('error', error?.message || 'Unable to save record.');
+    }
+  };
+  return <div className="space-y-4">
+    <SectionHeader title={title} subtitle={subtitle} actions={<button className="btn btn-primary" onClick={startAdd}><i className="fas fa-plus"></i>Add</button>} />
+    <Table columns={columns} rows={rows} renderActions={row => <div className="flex gap-2"><button className="btn btn-outline !py-1.5" onClick={() => edit(row)}>Edit</button><button className="btn btn-danger !py-1.5" onClick={() => remove(row)}>Delete</button></div>} />
+    <Modal open={open} title={form.id ? `Edit ${title}` : `Add ${title}`} onClose={() => setOpen(false)}>
+      <form onSubmit={save} className="space-y-4">
+        <div className="grid md:grid-cols-2 gap-4">
+          {fields.map(field => <Field key={field.name} label={field.label}><div className={field.full ? 'md:col-span-2' : ''}>{renderFormControl(field, form, setForm, data)}</div></Field>)}
+        </div>
+        <div className="flex justify-end gap-2"><button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button><button className="btn btn-primary">Save</button></div>
+      </form>
+    </Modal>
+  </div>;
+}
+
+function MinistersManagement() {
+  return <CrudManager title="Minister Records" collectionKey="ministers" emptyRecord={{ full_name: '', title: 'Pastor', phone: '', email: '', pastoral_area: '', photo_url: '', account_active: true }} columns={[
+    { key: 'full_name', label: 'Full Name' }, { key: 'title', label: 'Title' }, { key: 'pastoral_area', label: 'Pastoral Area' }, { key: 'phone', label: 'Phone' }, { key: 'account_active', label: 'Account', render: r => <span className={`pill ${r.account_active ? 'active' : 'inactive'}`}>{r.account_active ? 'Active' : 'Inactive'}</span> }
+  ]} fields={[
+    { name: 'full_name', label: 'Full Name', required: true }, { name: 'title', label: 'Title', required: true }, { name: 'pastoral_area', label: 'Pastoral Area' }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email', type: 'email' }, { name: 'photo_url', label: 'Photo', type: 'image', folder: 'ministers', shape: 'rounded-full' }, { name: 'account_active', label: 'Account Active', type: 'checkbox' }
+  ]} />;
+}
+function FinanceOfficersManagement() {
+  return <CrudManager title="Finance Officer Records" collectionKey="financeOfficers" emptyRecord={{ full_name: '', phone: '', email: '', office_title: 'Finance Officer', photo_url: '', account_active: true }} columns={[
+    { key: 'full_name', label: 'Full Name' }, { key: 'office_title', label: 'Office Title' }, { key: 'phone', label: 'Phone' }, { key: 'email', label: 'Email' }, { key: 'account_active', label: 'Account', render: r => <span className={`pill ${r.account_active ? 'active' : 'inactive'}`}>{r.account_active ? 'Active' : 'Inactive'}</span> }
+  ]} fields={[
+    { name: 'full_name', label: 'Full Name', required: true }, { name: 'office_title', label: 'Office Title' }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email', type: 'email' }, { name: 'photo_url', label: 'Photo', type: 'image', folder: 'finance-officers', shape: 'rounded-full' }, { name: 'account_active', label: 'Account Active', type: 'checkbox' }
+  ]} />;
+}
+function HouseholdsManagement() {
+  return <CrudManager title="Household Records" collectionKey="households" emptyRecord={{ family_name: '', primary_phone: '', address: '', home_area: '', notes: '' }} columns={[
+    { key: 'family_name', label: 'Family Name' }, { key: 'primary_phone', label: 'Phone' }, { key: 'home_area', label: 'Home Area' }, { key: 'address', label: 'Address' }
+  ]} fields={[
+    { name: 'family_name', label: 'Family Name', required: true }, { name: 'primary_phone', label: 'Primary Phone' }, { name: 'home_area', label: 'Home Area' }, { name: 'address', label: 'Address' }, { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} />;
+}
+function MinistriesManagement() {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Ministry Records" collectionKey="ministries" emptyRecord={{ name: '', category: '', leader_member_id: '', leader_minister_id: '', meeting_day: '', description: '', active: true }} columns={[
+    { key: 'name', label: 'Ministry' }, { key: 'category', label: 'Category' }, { key: 'leader_member_id', label: 'Member Leader', render: r => memberName(data, r.leader_member_id) }, { key: 'leader_minister_id', label: 'Minister Oversight', render: r => ministerName(data, r.leader_minister_id) }, { key: 'meeting_day', label: 'Meeting Day' }, { key: 'active', label: 'Status', render: r => <span className={`pill ${r.active ? 'active' : 'inactive'}`}>{r.active ? 'Active' : 'Inactive'}</span> }
+  ]} fields={[
+    { name: 'name', label: 'Ministry Name', required: true }, { name: 'category', label: 'Category' }, { name: 'leader_member_id', label: 'Member Leader', type: 'select', options: d => optionRows(d.members, 'full_name') }, { name: 'leader_minister_id', label: 'Minister Oversight', type: 'select', options: d => optionRows(d.ministers, 'full_name') }, { name: 'meeting_day', label: 'Meeting Day', type: 'select', options: DAYS }, { name: 'description', label: 'Description', type: 'textarea' }, { name: 'active', label: 'Active', type: 'checkbox' }
+  ]} preparePayload={(payload, d) => {
+    const duplicate = d.ministries.find(x => x.id !== payload.id && x.name.trim().toLowerCase() === payload.name.trim().toLowerCase());
+    if (duplicate) throw new Error('A ministry with this name already exists.');
+    return payload;
+  }} />;
+}
+function MembersManagement({ filterFn=null, title='Member Records' }) {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title={title} collectionKey="members" filterRows={filterFn} emptyRecord={{ member_number: '', full_name: '', gender: 'Male', dob: '', phone: '', email: '', address: '', household_id: '', primary_ministry_id: '', marital_status: 'Single', membership_status: 'Active', joined_date: today(), baptism_date: '', photo_url: '', account_active: true }} columns={[
+    { key: 'member_number', label: 'Member No' }, { key: 'full_name', label: 'Full Name' }, { key: 'phone', label: 'Phone' }, { key: 'household_id', label: 'Household', render: r => nameBy(data.households, r.household_id, 'family_name') }, { key: 'primary_ministry_id', label: 'Primary Ministry', render: r => ministryName(data, r.primary_ministry_id) }, { key: 'membership_status', label: 'Status', render: r => <span className={`pill ${statusClass(r.membership_status)}`}>{r.membership_status}</span> }, { key: 'account_active', label: 'Account', render: r => <span className={`pill ${r.account_active ? 'active' : 'inactive'}`}>{r.account_active ? 'Active' : 'Inactive'}</span> }
+  ]} fields={[
+    { name: 'member_number', label: 'Member Number' }, { name: 'full_name', label: 'Full Name', required: true }, { name: 'gender', label: 'Gender', type: 'select', options: GENDERS }, { name: 'dob', label: 'Date of Birth', type: 'date' }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email', type: 'email' }, { name: 'household_id', label: 'Household', type: 'select', options: d => optionRows(d.households, 'family_name') }, { name: 'primary_ministry_id', label: 'Primary Ministry', type: 'select', options: d => optionRows(d.ministries, 'name') }, { name: 'marital_status', label: 'Marital Status', type: 'select', options: MARITAL_STATUSES }, { name: 'membership_status', label: 'Membership Status', type: 'select', options: MEMBER_STATUSES }, { name: 'joined_date', label: 'Joined Date', type: 'date' }, { name: 'baptism_date', label: 'Baptism Date', type: 'date' }, { name: 'address', label: 'Address' }, { name: 'photo_url', label: 'Photo', type: 'image', folder: 'members', shape: 'rounded-full' }, { name: 'account_active', label: 'Account Active', type: 'checkbox' }
+  ]} preparePayload={(payload, d) => {
+    const prefix = generatedPrefix(d.churchSettings.church_name, 'MEM');
+    const member_number = payload.member_number || `${prefix}${String(nextSequence(d.members, 'member_number', 1)).padStart(5, '0')}`;
+    const duplicate = d.members.find(x => x.id !== payload.id && String(x.member_number || '').toLowerCase() === String(member_number).toLowerCase());
+    if (duplicate) throw new Error('A member with this member number already exists.');
+    return { ...payload, member_number };
+  }} />;
+}
+function MinistryEnrollmentManagement() {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Member Ministry Assignments" collectionKey="memberMinistries" emptyRecord={{ member_id: '', ministry_id: '', role_title: '', joined_at: today(), active: true }} columns={[
+    { key: 'member_id', label: 'Member', render: r => memberName(data, r.member_id) }, { key: 'ministry_id', label: 'Ministry', render: r => ministryName(data, r.ministry_id) }, { key: 'role_title', label: 'Role' }, { key: 'joined_at', label: 'Joined' }, { key: 'active', label: 'Status', render: r => <span className={`pill ${r.active ? 'active' : 'inactive'}`}>{r.active ? 'Active' : 'Inactive'}</span> }
+  ]} fields={[
+    { name: 'member_id', label: 'Member', type: 'select', required: true, options: d => optionRows(d.members, 'full_name') }, { name: 'ministry_id', label: 'Ministry', type: 'select', required: true, options: d => optionRows(d.ministries, 'name') }, { name: 'role_title', label: 'Role Title' }, { name: 'joined_at', label: 'Joined Date', type: 'date' }, { name: 'active', label: 'Active', type: 'checkbox' }
+  ]} preparePayload={(payload, d) => {
+    const duplicate = d.memberMinistries.find(x => x.id !== payload.id && x.member_id === payload.member_id && x.ministry_id === payload.ministry_id);
+    if (duplicate) throw new Error('This member is already assigned to the selected ministry.');
+    return payload;
+  }} />;
+}
+function ServicesManagement() {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Service Records" collectionKey="services" emptyRecord={{ service_name: '', service_type: 'Sunday Service', service_date: today(), start_time: '', end_time: '', preacher_minister_id: '', topic: '', expected_attendance: 0, notes: '' }} columns={[
+    { key: 'service_name', label: 'Service' }, { key: 'service_type', label: 'Type' }, { key: 'service_date', label: 'Date' }, { key: 'preacher_minister_id', label: 'Preacher', render: r => ministerName(data, r.preacher_minister_id) }, { key: 'topic', label: 'Topic' }, { key: 'expected_attendance', label: 'Expected' }
+  ]} fields={[
+    { name: 'service_name', label: 'Service Name', required: true }, { name: 'service_type', label: 'Service Type', type: 'select', options: SERVICE_TYPES }, { name: 'service_date', label: 'Service Date', type: 'date', required: true }, { name: 'start_time', label: 'Start Time', type: 'time' }, { name: 'end_time', label: 'End Time', type: 'time' }, { name: 'preacher_minister_id', label: 'Preacher', type: 'select', options: d => optionRows(d.ministers, 'full_name') }, { name: 'topic', label: 'Topic' }, { name: 'expected_attendance', label: 'Expected Attendance', type: 'number', min: 0 }, { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} preparePayload={payload => ({ ...payload, expected_attendance: Number(payload.expected_attendance || 0) })} />;
+}
+function AttendanceManagement({ memberFilter=null }) {
+  const { data } = React.useContext(DataContext);
+  const filterRows = memberFilter ? row => memberFilter(row.member_id, data) : null;
+  return <CrudManager title="Attendance Records" collectionKey="attendance" filterRows={filterRows} emptyRecord={{ service_id: '', member_id: '', status: 'Present', checked_in_at: '', recorded_by: '', notes: '' }} columns={[
+    { key: 'service_id', label: 'Service', render: r => serviceLabel(data, r.service_id) }, { key: 'member_id', label: 'Member', render: r => memberName(data, r.member_id) }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }, { key: 'checked_in_at', label: 'Checked In', render: r => r.checked_in_at ? new Date(r.checked_in_at).toLocaleString() : '' }, { key: 'notes', label: 'Notes' }
+  ]} fields={[
+    { name: 'service_id', label: 'Service', type: 'select', required: true, options: d => optionRows(d.services.map(s => ({ ...s, name: `${s.service_name} (${s.service_date})` })), 'name') }, { name: 'member_id', label: 'Member', type: 'select', required: true, options: d => optionRows(d.members, 'full_name') }, { name: 'status', label: 'Status', type: 'select', options: ATTENDANCE_STATUS }, { name: 'checked_in_at', label: 'Checked In Date/Time', type: 'datetime-local' }, { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} preparePayload={(payload, d) => {
+    const duplicate = d.attendance.find(x => x.id !== payload.id && x.service_id === payload.service_id && x.member_id === payload.member_id);
+    if (duplicate) throw new Error('Attendance has already been recorded for this member and service.');
+    return { ...payload, checked_in_at: payload.checked_in_at || nowIso() };
+  }} />;
+}
+function VisitorsManagement() {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Visitor Follow-up" collectionKey="visitors" emptyRecord={{ service_id: '', full_name: '', phone: '', email: '', invited_by_member_id: '', first_visit_date: today(), follow_up_status: 'New', notes: '' }} columns={[
+    { key: 'full_name', label: 'Visitor' }, { key: 'phone', label: 'Phone' }, { key: 'service_id', label: 'Service', render: r => serviceLabel(data, r.service_id) }, { key: 'invited_by_member_id', label: 'Invited By', render: r => memberName(data, r.invited_by_member_id) }, { key: 'first_visit_date', label: 'Visit Date' }, { key: 'follow_up_status', label: 'Status', render: r => <span className={`pill ${statusClass(r.follow_up_status)}`}>{r.follow_up_status}</span> }
+  ]} fields={[
+    { name: 'full_name', label: 'Full Name', required: true }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email', type: 'email' }, { name: 'service_id', label: 'Service', type: 'select', options: d => optionRows(d.services.map(s => ({ ...s, name: `${s.service_name} (${s.service_date})` })), 'name') }, { name: 'invited_by_member_id', label: 'Invited By', type: 'select', options: d => optionRows(d.members, 'full_name') }, { name: 'first_visit_date', label: 'First Visit Date', type: 'date' }, { name: 'follow_up_status', label: 'Follow-up Status' }, { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} />;
+}
+function prayerRequesterName(data, row) {
+  return row.member_id ? memberName(data, row.member_id) : (row.requester_name || 'Anonymous');
+}
+function PrayerRequestsManagement({ filterFn=null, initialPatch={} }) {
+  const { data, updateCollection, notify } = React.useContext(DataContext);
+  const emptyRecord = { member_id: '', requester_name: '', request_type: 'Prayer', privacy_level: 'Prayer Team', priority: 'Normal', status: 'Open', assigned_minister_id: '', request_text: '', private_notes: '', requested_at: nowIso(), prayed_at: '', answered_at: '', closed_at: '' };
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState({ ...emptyRecord, ...initialPatch });
+  const rows = React.useMemo(() => {
+    const prayerRows = safeArray(data.careRequests).filter(row => (row.request_type || 'Prayer') === 'Prayer');
+    return filterFn ? prayerRows.filter(row => filterFn(row, data)) : prayerRows;
+  }, [data, filterFn]);
+  const edit = row => { setForm({ ...emptyRecord, ...row }); setOpen(true); };
+  const remove = async row => {
+    if (!window.confirm('Delete prayer request?')) return;
+    await updateCollection('careRequests', items => safeArray(items).filter(item => item.id !== row.id), { successMessage: 'Prayer request deleted successfully.' });
+  };
+  const save = async event => {
+    event.preventDefault();
+    if (!form.request_text.trim()) { notify('error', 'Prayer request is required.'); return; }
+    const payload = {
+      ...emptyRecord,
+      ...form,
+      ...initialPatch,
+      id: form.id || uid(),
+      request_type: 'Prayer',
+      requested_at: form.requested_at || nowIso(),
+      closed_at: form.status === 'Closed' ? (form.closed_at || nowIso()) : '',
+      updated_at: nowIso()
+    };
+    if (!form.id) payload.created_at = nowIso();
+    await updateCollection('careRequests', items => safeArray(items).some(item => item.id === payload.id) ? safeArray(items).map(item => item.id === payload.id ? payload : item) : [payload, ...safeArray(items)], { successMessage: 'Prayer request saved successfully.' });
+    setOpen(false);
+    setForm({ ...emptyRecord, ...initialPatch });
+  };
+  const updatePrayer = async (row, patch) => {
+    await updateCollection('careRequests', items => safeArray(items).map(item => item.id === row.id ? { ...item, ...patch, updated_at: nowIso() } : item), { successMessage: 'Prayer request updated successfully.' });
+  };
+  const columns = [
+    { key: 'requester', label: 'Name', render: r => prayerRequesterName(data, r) },
+    { key: 'privacy_level', label: 'Privacy', render: r => r.privacy_level || 'Prayer Team' },
+    { key: 'priority', label: 'Priority', render: r => <span className={`pill ${statusClass(r.priority)}`}>{r.priority || 'Normal'}</span> },
+    { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status || 'Open'}</span> },
+    { key: 'assigned_minister_id', label: 'Assigned Minister', render: r => ministerName(data, r.assigned_minister_id) },
+    { key: 'requested_at', label: 'Submitted', render: r => r.requested_at ? new Date(r.requested_at).toLocaleDateString() : '' },
+    { key: 'request_text', label: 'Request' }
+  ];
+  return <div className="space-y-4">
+    <SectionHeader title="Prayer Requests" actions={<button className="btn btn-primary" onClick={() => { setForm({ ...emptyRecord, ...initialPatch }); setOpen(true); }}><i className="fas fa-plus"></i>Add Prayer Request</button>} />
+    <Table columns={columns} rows={rows} renderActions={row => <div className="flex flex-wrap gap-2">
+      {!row.prayed_at && <button className="btn btn-outline !py-1.5" onClick={() => updatePrayer(row, { prayed_at: nowIso(), status: row.status === 'Open' ? 'In Progress' : row.status })}>Prayed</button>}
+      {!row.answered_at && <button className="btn btn-outline !py-1.5" onClick={() => updatePrayer(row, { prayed_at: row.prayed_at || nowIso(), answered_at: nowIso(), status: 'Closed', closed_at: nowIso() })}>Answered</button>}
+      <button className="btn btn-outline !py-1.5" onClick={() => edit(row)}>Edit</button>
+      <button className="btn btn-danger !py-1.5" onClick={() => remove(row)}>Delete</button>
+    </div>} />
+    <Modal open={open} title={form.id ? 'Edit Prayer Request' : 'Add Prayer Request'} onClose={() => setOpen(false)}>
+      <form onSubmit={save} className="space-y-4">
+        <div className="grid md:grid-cols-2 gap-4">
+          <Field label="Member"><select className="select" value={form.member_id || ''} onChange={e => setForm({ ...form, member_id: e.target.value })}><option value="">Select</option>{optionRows(data.members, 'full_name').map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
+          <Field label="Name"><input className="input" value={form.requester_name || ''} onChange={e => setForm({ ...form, requester_name: e.target.value })} /></Field>
+          <Field label="Privacy"><select className="select" value={form.privacy_level || 'Prayer Team'} onChange={e => setForm({ ...form, privacy_level: e.target.value })}>{PRAYER_PRIVACY_OPTIONS.map(x => <option key={x}>{x}</option>)}</select></Field>
+          <Field label="Priority"><select className="select" value={form.priority || 'Normal'} onChange={e => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map(x => <option key={x}>{x}</option>)}</select></Field>
+          <Field label="Status"><select className="select" value={form.status || 'Open'} onChange={e => setForm({ ...form, status: e.target.value })}>{REQUEST_STATUSES.map(x => <option key={x}>{x}</option>)}</select></Field>
+          <Field label="Assigned Minister"><select className="select" value={form.assigned_minister_id || ''} onChange={e => setForm({ ...form, assigned_minister_id: e.target.value })}><option value="">Select</option>{optionRows(data.ministers, 'full_name').map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
+          <div className="md:col-span-2"><Field label="Request"><textarea className="textarea" required value={form.request_text || ''} onChange={e => setForm({ ...form, request_text: e.target.value })}></textarea></Field></div>
+          <div className="md:col-span-2"><Field label="Private Notes"><textarea className="textarea" value={form.private_notes || ''} onChange={e => setForm({ ...form, private_notes: e.target.value })}></textarea></Field></div>
+        </div>
+        <div className="flex justify-end gap-2"><button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button><button className="btn btn-primary">Save</button></div>
+      </form>
+    </Modal>
+  </div>;
+}
+const CareRequestsManagement = PrayerRequestsManagement;
+function PastoralVisitsManagement({ filterFn=null }) {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Pastoral Visit Records" collectionKey="pastoralVisits" filterRows={filterFn} emptyRecord={{ member_id: '', minister_id: '', visit_type: 'Home Visit', visit_date: today(), summary: '', next_follow_up_date: '', status: 'Completed' }} columns={[
+    { key: 'member_id', label: 'Member', render: r => memberName(data, r.member_id) }, { key: 'minister_id', label: 'Minister', render: r => ministerName(data, r.minister_id) }, { key: 'visit_type', label: 'Type' }, { key: 'visit_date', label: 'Date' }, { key: 'next_follow_up_date', label: 'Next Follow-up' }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }
+  ]} fields={[
+    { name: 'member_id', label: 'Member', type: 'select', required: true, options: d => optionRows(d.members, 'full_name') }, { name: 'minister_id', label: 'Minister', type: 'select', options: d => optionRows(d.ministers, 'full_name') }, { name: 'visit_type', label: 'Visit Type' }, { name: 'visit_date', label: 'Visit Date', type: 'date' }, { name: 'next_follow_up_date', label: 'Next Follow-up Date', type: 'date' }, { name: 'status', label: 'Status', type: 'select', options: ['Planned', 'Completed', 'Deferred', 'Cancelled'] }, { name: 'summary', label: 'Summary', type: 'textarea' }
+  ]} />;
+}
+function FundsManagement() {
+  return <CrudManager title="Fund Records" collectionKey="funds" emptyRecord={{ name: '', description: '', active: true }} columns={[
+    { key: 'name', label: 'Fund' }, { key: 'description', label: 'Description' }, { key: 'active', label: 'Status', render: r => <span className={`pill ${r.active ? 'active' : 'inactive'}`}>{r.active ? 'Active' : 'Inactive'}</span> }
+  ]} fields={[
+    { name: 'name', label: 'Fund Name', required: true }, { name: 'description', label: 'Description', type: 'textarea' }, { name: 'active', label: 'Active', type: 'checkbox' }
+  ]} preparePayload={(payload, d) => {
+    const duplicate = d.funds.find(x => x.id !== payload.id && x.name.trim().toLowerCase() === payload.name.trim().toLowerCase());
+    if (duplicate) throw new Error('A fund with this name already exists.');
+    return payload;
+  }} />;
+}
+function GivingManagement({ memberId='' }) {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Giving Records" collectionKey="giving" filterRows={memberId ? row => row.member_id === memberId : null} initialPatch={memberId ? { member_id: memberId } : {}} emptyRecord={{ member_id: '', fund_id: '', giving_date: today(), amount: '', payment_method: 'Cash', reference: '', recorded_by_finance_id: '', notes: '' }} columns={[
+    { key: 'giving_date', label: 'Date' }, { key: 'member_id', label: 'Member', render: r => memberName(data, r.member_id) }, { key: 'fund_id', label: 'Fund', render: r => fundName(data, r.fund_id) }, { key: 'amount', label: 'Amount', render: r => <span className="font-extrabold text-emerald-700">{money(r.amount)}</span> }, { key: 'payment_method', label: 'Method' }, { key: 'recorded_by_finance_id', label: 'Recorded By', render: r => nameBy(data.financeOfficers, r.recorded_by_finance_id, 'full_name') }
+  ]} fields={[
+    { name: 'member_id', label: 'Member', type: 'select', options: d => optionRows(d.members, 'full_name') }, { name: 'fund_id', label: 'Fund', type: 'select', required: true, options: d => optionRows(d.funds, 'name') }, { name: 'giving_date', label: 'Giving Date', type: 'date' }, { name: 'amount', label: 'Amount', type: 'number', min: 0, step: '0.01', required: true }, { name: 'payment_method', label: 'Payment Method', type: 'select', options: PAYMENT_METHODS }, { name: 'reference', label: 'Reference' }, { name: 'recorded_by_finance_id', label: 'Recorded By', type: 'select', options: d => optionRows(d.financeOfficers, 'full_name') }, { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} preparePayload={payload => ({ ...payload, amount: Number(payload.amount || 0) })} />;
+}
+function PledgesManagement({ memberId='' }) {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Pledge Records" collectionKey="pledges" filterRows={memberId ? row => row.member_id === memberId : null} initialPatch={memberId ? { member_id: memberId } : {}} emptyRecord={{ member_id: '', fund_id: '', pledge_date: today(), pledge_amount: '', amount_received: '', due_date: '', status: 'Open', notes: '' }} columns={[
+    { key: 'member_id', label: 'Member', render: r => memberName(data, r.member_id) }, { key: 'fund_id', label: 'Fund', render: r => fundName(data, r.fund_id) }, { key: 'pledge_amount', label: 'Pledged', render: r => money(r.pledge_amount) }, { key: 'amount_received', label: 'Received', render: r => money(r.amount_received) }, { key: 'balance', label: 'Balance', render: r => money(Math.max(Number(r.pledge_amount || 0) - Number(r.amount_received || 0), 0)) }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }
+  ]} fields={[
+    { name: 'member_id', label: 'Member', type: 'select', options: d => optionRows(d.members, 'full_name') }, { name: 'fund_id', label: 'Fund', type: 'select', required: true, options: d => optionRows(d.funds, 'name') }, { name: 'pledge_date', label: 'Pledge Date', type: 'date' }, { name: 'pledge_amount', label: 'Pledge Amount', type: 'number', min: 0, step: '0.01' }, { name: 'amount_received', label: 'Amount Received', type: 'number', min: 0, step: '0.01' }, { name: 'due_date', label: 'Due Date', type: 'date' }, { name: 'status', label: 'Status', type: 'select', options: ['Open', 'Part Paid', 'Fulfilled', 'Cancelled'] }, { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} preparePayload={payload => {
+    const pledge = Number(payload.pledge_amount || 0);
+    const received = Number(payload.amount_received || 0);
+    const status = payload.status === 'Cancelled' ? 'Cancelled' : received >= pledge && pledge > 0 ? 'Fulfilled' : received > 0 ? 'Part Paid' : 'Open';
+    return { ...payload, pledge_amount: pledge, amount_received: received, status };
+  }} />;
+}
+function ExpensesManagement() {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Expense Records" collectionKey="expenses" emptyRecord={{ fund_id: '', expense_date: today(), vendor: '', purpose: '', amount: '', payment_method: 'Bank Transfer', approved_by_minister_id: '', recorded_by_finance_id: '', notes: '' }} columns={[
+    { key: 'expense_date', label: 'Date' }, { key: 'fund_id', label: 'Fund', render: r => fundName(data, r.fund_id) }, { key: 'purpose', label: 'Purpose' }, { key: 'vendor', label: 'Vendor' }, { key: 'amount', label: 'Amount', render: r => <span className="font-extrabold text-rose-700">{money(r.amount)}</span> }, { key: 'approved_by_minister_id', label: 'Approved By', render: r => ministerName(data, r.approved_by_minister_id) }
+  ]} fields={[
+    { name: 'fund_id', label: 'Fund', type: 'select', required: true, options: d => optionRows(d.funds, 'name') }, { name: 'expense_date', label: 'Expense Date', type: 'date' }, { name: 'vendor', label: 'Vendor' }, { name: 'purpose', label: 'Purpose', required: true }, { name: 'amount', label: 'Amount', type: 'number', min: 0, step: '0.01', required: true }, { name: 'payment_method', label: 'Payment Method', type: 'select', options: PAYMENT_METHODS }, { name: 'approved_by_minister_id', label: 'Approved By', type: 'select', options: d => optionRows(d.ministers, 'full_name') }, { name: 'recorded_by_finance_id', label: 'Recorded By', type: 'select', options: d => optionRows(d.financeOfficers, 'full_name') }, { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} preparePayload={payload => ({ ...payload, amount: Number(payload.amount || 0) })} />;
+}
+function FinanceSummary() {
+  const { data } = React.useContext(DataContext);
+  const rows = data.funds.map(fund => {
+    const giving = sumBy(data.giving.filter(g => g.fund_id === fund.id), 'amount');
+    const expenses = sumBy(data.expenses.filter(e => e.fund_id === fund.id), 'amount');
+    return { ...fund, giving, expenses, balance: giving - expenses };
+  });
+  return <div className="space-y-4">
+    <div className="grid-fit"><StatCard label="Total Giving" value={money(sumBy(data.giving, 'amount'))} icon="hand-holding-dollar" /><StatCard label="Total Expenses" value={money(sumBy(data.expenses, 'amount'))} icon="receipt" accent="rose" /><StatCard label="Fund Balance" value={money(sumBy(data.giving, 'amount') - sumBy(data.expenses, 'amount'))} icon="scale-balanced" accent="blue" /><StatCard label="Open Pledges" value={money(data.pledges.reduce((sum, p) => sum + Math.max(Number(p.pledge_amount || 0) - Number(p.amount_received || 0), 0), 0))} icon="file-signature" accent="amber" /></div>
+    <Table columns={[{ key: 'name', label: 'Fund' }, { key: 'giving', label: 'Giving', render: r => money(r.giving) }, { key: 'expenses', label: 'Expenses', render: r => money(r.expenses) }, { key: 'balance', label: 'Balance', render: r => <span className={r.balance >= 0 ? 'font-extrabold text-emerald-700' : 'font-extrabold text-rose-700'}>{money(r.balance)}</span> }]} rows={rows} />
+  </div>;
+}
+function FinanceCenter() {
+  const [tab, setTab] = React.useState('summary');
+  const tabs = [['summary','Summary','chart-pie'], ['funds','Funds','wallet'], ['giving','Giving','hand-holding-dollar'], ['pledges','Pledges','file-signature'], ['expenses','Expenses','receipt']];
+  return <div className="space-y-4">
+    <SectionHeader title="Finance Center" actions={tabs.map(([key,label,icon]) => <button key={key} className={`btn ${tab === key ? 'btn-primary' : 'btn-outline'}`} onClick={() => setTab(key)}><i className={`fas fa-${icon}`}></i>{label}</button>)} />
+    {tab === 'summary' && <FinanceSummary />}
+    {tab === 'funds' && <FundsManagement />}
+    {tab === 'giving' && <GivingManagement />}
+    {tab === 'pledges' && <PledgesManagement />}
+    {tab === 'expenses' && <ExpensesManagement />}
+  </div>;
+}
+function EventsManagement({ filterFn=null }) {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Event Records" collectionKey="events" filterRows={filterFn} emptyRecord={{ title: '', ministry_id: '', event_date: today(), start_time: '', end_time: '', venue: '', budget: '', status: 'Planned', description: '' }} columns={[
+    { key: 'title', label: 'Event' }, { key: 'ministry_id', label: 'Ministry', render: r => ministryName(data, r.ministry_id) }, { key: 'event_date', label: 'Date' }, { key: 'venue', label: 'Venue' }, { key: 'budget', label: 'Budget', render: r => money(r.budget) }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }
+  ]} fields={[
+    { name: 'title', label: 'Title', required: true }, { name: 'ministry_id', label: 'Ministry', type: 'select', options: d => optionRows(d.ministries, 'name') }, { name: 'event_date', label: 'Event Date', type: 'date', required: true }, { name: 'start_time', label: 'Start Time', type: 'time' }, { name: 'end_time', label: 'End Time', type: 'time' }, { name: 'venue', label: 'Venue' }, { name: 'budget', label: 'Budget', type: 'number', min: 0, step: '0.01' }, { name: 'status', label: 'Status', type: 'select', options: EVENT_STATUSES }, { name: 'description', label: 'Description', type: 'textarea' }
+  ]} preparePayload={payload => ({ ...payload, budget: Number(payload.budget || 0) })} />;
+}
+function EventRegistrationsManagement({ memberId='' }) {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Event Registrations" collectionKey="eventRegistrations" filterRows={memberId ? row => row.member_id === memberId : null} initialPatch={memberId ? { member_id: memberId } : {}} emptyRecord={{ event_id: '', member_id: '', visitor_name: '', registration_status: 'Registered', registered_at: nowIso(), notes: '' }} columns={[
+    { key: 'event_id', label: 'Event', render: r => nameBy(data.events, r.event_id, 'title') }, { key: 'member_id', label: 'Member', render: r => r.member_id ? memberName(data, r.member_id) : r.visitor_name }, { key: 'registration_status', label: 'Status', render: r => <span className={`pill ${statusClass(r.registration_status)}`}>{r.registration_status}</span> }, { key: 'registered_at', label: 'Registered', render: r => r.registered_at ? new Date(r.registered_at).toLocaleString() : '' }
+  ]} fields={[
+    { name: 'event_id', label: 'Event', type: 'select', required: true, options: d => optionRows(d.events, 'title') }, { name: 'member_id', label: 'Member', type: 'select', options: d => optionRows(d.members, 'full_name') }, { name: 'visitor_name', label: 'Visitor Name' }, { name: 'registration_status', label: 'Status', type: 'select', options: ['Registered', 'Confirmed', 'Attended', 'Cancelled'] }, { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} preparePayload={payload => ({ ...payload, registered_at: payload.registered_at || nowIso() })} />;
+}
+function VolunteerSchedulesManagement({ ministryIds=null }) {
+  const { data } = React.useContext(DataContext);
+  const filterRows = ministryIds ? row => ministryIds.includes(row.ministry_id) : null;
+  return <CrudManager title="Volunteer Schedules" collectionKey="volunteerSchedules" filterRows={filterRows} emptyRecord={{ event_id: '', service_id: '', ministry_id: '', member_id: '', role_title: '', schedule_date: today(), status: 'Scheduled', notes: '' }} columns={[
+    { key: 'schedule_date', label: 'Date' }, { key: 'member_id', label: 'Volunteer', render: r => memberName(data, r.member_id) }, { key: 'ministry_id', label: 'Ministry', render: r => ministryName(data, r.ministry_id) }, { key: 'role_title', label: 'Role' }, { key: 'service_id', label: 'Service', render: r => r.service_id ? serviceLabel(data, r.service_id) : nameBy(data.events, r.event_id, 'title') }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }
+  ]} fields={[
+    { name: 'schedule_date', label: 'Schedule Date', type: 'date' }, { name: 'member_id', label: 'Volunteer', type: 'select', required: true, options: d => optionRows(d.members, 'full_name') }, { name: 'ministry_id', label: 'Ministry', type: 'select', options: d => optionRows(d.ministries, 'name') }, { name: 'role_title', label: 'Role Title', required: true }, { name: 'service_id', label: 'Service', type: 'select', options: d => optionRows(d.services.map(s => ({ ...s, name: `${s.service_name} (${s.service_date})` })), 'name') }, { name: 'event_id', label: 'Event', type: 'select', options: d => optionRows(d.events, 'title') }, { name: 'status', label: 'Status', type: 'select', options: VOLUNTEER_STATUSES }, { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} />;
+}
+function EventsCenter({ ministryIds=null }) {
+  const [tab, setTab] = React.useState('events');
+  return <div className="space-y-4">
+    <SectionHeader title="Events and Volunteers" actions={<><button className={`btn ${tab === 'events' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setTab('events')}><i className="fas fa-calendar-days"></i>Events</button><button className={`btn ${tab === 'registrations' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setTab('registrations')}><i className="fas fa-clipboard-list"></i>Registrations</button><button className={`btn ${tab === 'volunteers' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setTab('volunteers')}><i className="fas fa-hands-helping"></i>Volunteers</button></>} />
+    {tab === 'events' && <EventsManagement filterFn={ministryIds ? row => ministryIds.includes(row.ministry_id) : null} />}
+    {tab === 'registrations' && <EventRegistrationsManagement />}
+    {tab === 'volunteers' && <VolunteerSchedulesManagement ministryIds={ministryIds} />}
+  </div>;
+}
+function certificateMemberName(data, certificate) {
+  return memberName(data, certificate.member_id) || certificate.member_name || 'Member';
+}
+function certificateNumber(data) {
+  return `${generatedPrefix(data.churchSettings.church_name, 'CERT')}${String(nextSequence(data.certificates, 'certificate_number', 1)).padStart(5, '0')}`;
+}
+function certificateDetailsForType(type='Membership', memberName='', churchName='', issueDate='') {
+  const details = {
+    Membership: {
+      title: 'Certificate of Membership',
+      accent: 'Received into covenant fellowship and service',
+      scripture: '1 Corinthians 12:27 - You are the body of Christ, and members individually.',
+      statement: `${memberName} is received into the fellowship of ${churchName} as a valued member of the church family. This certificate celebrates a commitment to worship, discipleship, prayer, service, stewardship, and shared mission from ${issueDate}.`
+    },
+    Baptism: {
+      title: 'Certificate of Baptism',
+      accent: 'A public testimony of new life in Christ',
+      scripture: 'Romans 6:4 - Raised to walk in newness of life.',
+      statement: `${memberName} is recognized for publicly declaring faith in the Lord Jesus Christ through baptism, witnessed and affirmed by ${churchName} on ${issueDate}.`
+    },
+    'Child Dedication': {
+      title: 'Certificate of Child Dedication',
+      accent: 'Presented before God with prayer, love, and blessing',
+      scripture: 'Mark 10:16 - He took the children in His arms and blessed them.',
+      statement: `${memberName} is lovingly presented before God and the congregation for dedication, with the blessing and support of ${churchName} on ${issueDate}.`
+    },
+    'Leadership Appointment': {
+      title: 'Certificate of Leadership Appointment',
+      accent: 'Set apart for faithful service and spiritual responsibility',
+      scripture: '1 Peter 4:10 - Use your gift to serve one another.',
+      statement: `${memberName} is prayerfully recognized and appointed to serve in leadership within ${churchName}, beginning from ${issueDate}.`
+    },
+    'Marriage Blessing': {
+      title: 'Certificate of Marriage Blessing',
+      accent: 'Honoring a sacred union under the grace and peace of God',
+      scripture: 'Mark 10:9 - What God has joined together, let no one separate.',
+      statement: `${memberName} is honored in celebration of the sacred blessing of marriage, asking that the home be filled with peace, grace, joy, and the presence of God from ${issueDate}.`
+    }
+  };
+  return details[type] || details.Membership;
+}
+function printCertificate(certificate, data) {
+  const settings = data.churchSettings;
+  const member = certificateMemberName(data, certificate);
+  const issued = certificate.certificate_date || today();
+  const issueDate = new Date(`${issued}T00:00:00`).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  const details = certificateDetailsForType(certificate.certificate_type, member, settings.church_name, issueDate);
+  const theme = THEME_OPTIONS[settings.theme_choice] || THEME_OPTIONS.teal;
+  const signatureScale = Math.min(220, Math.max(70, Number(settings.general_overseer_signature_scale || 135)));
+  const signatureHeight = Math.round(82 * signatureScale / 100);
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(details.title)}</title><style>
+    @page { size: A4 landscape; margin: 0; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f8f5ea; font-family: Georgia, 'Times New Roman', serif; color: #132238; }
+    .sheet { width: 100vw; height: 100vh; display: grid; place-items: center; padding: 22px; background: radial-gradient(circle at 50% 10%, #ffffff 0%, #fbf7eb 62%, #efe4c8 100%); }
+    .certificate { position: relative; width: min(1120px, calc(100vw - 44px)); aspect-ratio: 1.414/1; background: linear-gradient(135deg, #fffdf8, #fff8ea); border: 10px solid ${escapeHtml(theme.primary)}; outline: 2px solid #132238; outline-offset: -22px; padding: 44px 72px 36px; text-align: center; overflow: hidden; box-shadow: 0 30px 80px rgba(15,23,42,.18); }
+    .certificate:before { content: ""; position: absolute; inset: 32px; border: 1px solid rgba(15,23,42,.14); }
+    .watermark { position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%); width: 430px; max-width: 48%; opacity: .055; }
+    .content { position: relative; z-index: 1; min-height: 100%; display: flex; flex-direction: column; align-items: center; }
+    .logo { width: 76px; height: 76px; object-fit: contain; margin-bottom: 8px; }
+    .church { margin: 0; font-size: 34px; text-transform: uppercase; letter-spacing: .12em; color: #132238; }
+    .contact { margin: 7px 0 16px; color: #667085; font-size: 14px; }
+    .title { margin: 8px 0 6px; font-size: 58px; line-height: 1; color: ${escapeHtml(theme.primary)}; }
+    .accent { display: inline-flex; padding: 8px 18px; border-radius: 999px; background: rgba(15,118,110,.1); color: #115e59; font-size: 13px; text-transform: uppercase; font-weight: 800; letter-spacing: .1em; }
+    .presented { margin: 18px 0 4px; font-size: 18px; color: #475569; }
+    .recipient { margin: 0 0 12px; font-size: 62px; line-height: 1; color: #0f172a; border-bottom: 2px solid rgba(15,23,42,.24); padding: 0 24px 10px; min-width: 620px; }
+    .statement { max-width: 900px; margin: 0 auto; font-size: 19px; line-height: 1.55; color: #263238; }
+    .scripture { margin: 12px 0 0; color: #7c6626; font-size: 15px; font-style: italic; }
+    .signatures { margin-top: auto; width: 100%; display: grid; grid-template-columns: 220px 86px 260px; justify-content: center; align-items: end; gap: 36px; padding-top: 22px; }
+    .line { border-bottom: 2px solid #132238; height: 34px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 5px; font-weight: 800; white-space: nowrap; }
+    .label { margin-top: 6px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #667085; font-family: Arial, sans-serif; }
+    .seal { width: 76px; height: 76px; border-radius: 50%; border: 2px solid rgba(15,118,110,.55); display: grid; place-items: center; color: rgba(15,23,42,.6); font: 800 9px Arial; letter-spacing: .12em; text-transform: uppercase; transform: rotate(-8deg); }
+    .signature { height: ${signatureHeight}px; max-width: ${Math.round(235 * signatureScale / 100)}px; object-fit: contain; display: block; margin: 0 auto -8px; }
+    .signature-space { height: ${signatureHeight}px; }
+    @media print { body { background: white; } .sheet { width: 297mm; height: 210mm; padding: 7mm; background: white; } .certificate { width: 283mm; height: 196mm; max-width: none; box-shadow: none; padding: 32px 62px 28px; } .title { font-size: 54px; } .recipient { font-size: 54px; } .statement { font-size: 16px; } }
+  </style></head><body><div class="sheet"><main class="certificate">
+    ${settings.logo_url ? `<img class="watermark" src="${escapeHtml(settings.logo_url)}" alt="">` : ''}
+    <div class="content">
+      ${settings.logo_url ? `<img class="logo" src="${escapeHtml(settings.logo_url)}" alt="Church logo">` : ''}
+      <h1 class="church">${escapeHtml(settings.church_name)}</h1>
+      <div class="contact">${escapeHtml([settings.address, settings.contact, settings.location].filter(Boolean).join(' | '))}</div>
+      <h2 class="title">${escapeHtml(details.title)}</h2>
+      <div class="accent">${escapeHtml(details.accent)}</div>
+      <div class="presented">This is prayerfully presented to</div>
+      <h3 class="recipient">${escapeHtml(member)}</h3>
+      <p class="statement">${escapeHtml(details.statement)}</p>
+      <p class="scripture">${escapeHtml(details.scripture)}</p>
+      <div class="signatures">
+        <div><div class="line">${escapeHtml(issueDate)}</div><div class="label">Date Issued</div></div>
+        <div class="seal">Official<br>Seal</div>
+        <div>${settings.general_overseer_signature_url ? `<img class="signature" src="${escapeHtml(settings.general_overseer_signature_url)}" alt="Signature">` : `<div class="signature-space"></div>`}<div class="line">${escapeHtml(certificate.authorized_by || settings.general_overseer_name || 'General Overseer')}</div><div class="label">General Overseer</div></div>
+      </div>
+    </div>
+  </main></div></body></html>`;
+  const win = window.open('', '_blank', 'width=1200,height=850');
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { try { win.print(); } catch (e) {} }, 180);
+}
+function CertificatesManagement() {
+  const { data, updateCollection, notify } = React.useContext(DataContext);
+  const emptyRecord = { member_id: '', certificate_type: 'Membership', certificate_date: today(), authorized_by: data.churchSettings.general_overseer_name || 'General Overseer', notes: '' };
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState(emptyRecord);
+  const startCreate = () => { setForm({ ...emptyRecord, authorized_by: data.churchSettings.general_overseer_name || 'General Overseer' }); setOpen(true); };
+  const save = async event => {
+    event.preventDefault();
+    if (!form.member_id) { notify('error', 'Select a member.'); return; }
+    const payload = { ...form, id: uid(), certificate_number: certificateNumber(data), certificate_date: form.certificate_date || today(), issued_at: nowIso(), created_at: nowIso(), updated_at: nowIso() };
+    await updateCollection('certificates', rows => [payload, ...safeArray(rows)], { successMessage: 'Certificate created successfully.' });
+    setOpen(false);
+  };
+  const remove = async row => {
+    if (!window.confirm('Delete certificate?')) return;
+    await updateCollection('certificates', rows => safeArray(rows).filter(item => item.id !== row.id), { successMessage: 'Certificate deleted successfully.' });
+  };
+  return <div className="space-y-4">
+    <SectionHeader title="Membership Certificate Generator" actions={<button className="btn btn-primary" onClick={startCreate}><i className="fas fa-plus"></i>Create Certificate</button>} />
+    <Table columns={[
+      { key: 'certificate_number', label: 'Certificate No' },
+      { key: 'member_id', label: 'Member', render: r => certificateMemberName(data, r) },
+      { key: 'certificate_type', label: 'Type' },
+      { key: 'certificate_date', label: 'Date' },
+      { key: 'authorized_by', label: 'Authorized By' }
+    ]} rows={data.certificates} renderActions={row => <div className="flex flex-wrap gap-2"><button className="btn btn-outline !py-1.5" onClick={() => printCertificate(row, data)}>Print</button><button className="btn btn-danger !py-1.5" onClick={() => remove(row)}>Delete</button></div>} />
+    <Modal open={open} title="Create Certificate" onClose={() => setOpen(false)}>
+      <form onSubmit={save} className="space-y-4">
+        <div className="grid md:grid-cols-2 gap-4">
+          <Field label="Member"><select className="select" required value={form.member_id || ''} onChange={e => setForm({ ...form, member_id: e.target.value })}><option value="">Select</option>{optionRows(data.members, 'full_name').map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
+          <Field label="Certificate Type"><select className="select" value={form.certificate_type || 'Membership'} onChange={e => setForm({ ...form, certificate_type: e.target.value })}>{CERTIFICATE_TYPES.map(x => <option key={x}>{x}</option>)}</select></Field>
+          <Field label="Date"><input className="input" type="date" value={form.certificate_date || today()} onChange={e => setForm({ ...form, certificate_date: e.target.value })} required /></Field>
+          <Field label="Authorized By"><input className="input" value={form.authorized_by || ''} onChange={e => setForm({ ...form, authorized_by: e.target.value })} /></Field>
+          <div className="md:col-span-2"><Field label="Notes"><textarea className="textarea" value={form.notes || ''} onChange={e => setForm({ ...form, notes: e.target.value })}></textarea></Field></div>
+        </div>
+        <div className="flex justify-end gap-2"><button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button><button className="btn btn-primary">Create</button></div>
+      </form>
+    </Modal>
+  </div>;
+}
+function DocumentsManagement() {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Document and Resource Manager" collectionKey="documents" emptyRecord={{ title: '', document_type: 'Report', document_date: today(), owner: '', file_url: '', notes: '' }} columns={[
+    { key: 'title', label: 'Title' },
+    { key: 'document_type', label: 'Type' },
+    { key: 'document_date', label: 'Date' },
+    { key: 'owner', label: 'Owner' },
+    { key: 'file_url', label: 'File', render: r => r.file_url ? <a className="font-bold text-[color:var(--theme-primary)]" href={r.file_url} target="_blank" rel="noreferrer">Open</a> : '' }
+  ]} fields={[
+    { name: 'title', label: 'Title', required: true },
+    { name: 'document_type', label: 'Type', type: 'select', options: DOCUMENT_TYPES },
+    { name: 'document_date', label: 'Date', type: 'date' },
+    { name: 'owner', label: 'Owner' },
+    { name: 'file_url', label: 'File', type: 'file', folder: 'church-documents' },
+    { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} preparePayload={payload => ({ ...payload, document_date: payload.document_date || today(), owner: payload.owner || data.churchSettings.church_name })} />;
+}
+function WelfareSupportManagement({ memberId='' }) {
+  const { data } = React.useContext(DataContext);
+  return <CrudManager title="Welfare Support Records" collectionKey="welfareRecords" filterRows={memberId ? row => row.member_id === memberId : null} initialPatch={memberId ? { member_id: memberId } : {}} emptyRecord={{ member_id: '', support_type: 'Cash', support_date: today(), amount: '', approved_by_minister_id: '', status: 'Requested', notes: '' }} columns={[
+    { key: 'support_date', label: 'Date' },
+    { key: 'member_id', label: 'Member', render: r => memberName(data, r.member_id) },
+    { key: 'support_type', label: 'Type' },
+    { key: 'amount', label: 'Amount', render: r => money(r.amount) },
+    { key: 'approved_by_minister_id', label: 'Approved By', render: r => ministerName(data, r.approved_by_minister_id) },
+    { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }
+  ]} fields={[
+    { name: 'member_id', label: 'Member', type: 'select', required: true, options: d => optionRows(d.members, 'full_name') },
+    { name: 'support_type', label: 'Support Type', type: 'select', options: WELFARE_TYPES },
+    { name: 'support_date', label: 'Date', type: 'date' },
+    { name: 'amount', label: 'Amount or Value', type: 'number', min: 0, step: '0.01' },
+    { name: 'approved_by_minister_id', label: 'Approved By', type: 'select', options: d => optionRows(d.ministers, 'full_name') },
+    { name: 'status', label: 'Status', type: 'select', options: WELFARE_STATUSES },
+    { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} preparePayload={payload => ({ ...payload, amount: Number(payload.amount || 0), support_date: payload.support_date || today() })} />;
+}
+function AnnouncementsManagement({ readOnly=false }) {
+  const { data } = React.useContext(DataContext);
+  const rows = readOnly ? data.announcements.filter(row => row.status === 'Published') : data.announcements;
+  if (readOnly) return <div className="space-y-4"><SectionHeader title="Announcements" /><Table columns={[
+    { key: 'publish_date', label: 'Date' },
+    { key: 'title', label: 'Title' },
+    { key: 'audience', label: 'Audience' },
+    { key: 'message', label: 'Message' }
+  ]} rows={rows} /></div>;
+  return <CrudManager title="Announcements" collectionKey="announcements" emptyRecord={{ title: '', audience: 'All Members', channel: 'Notice Board', publish_date: today(), status: 'Draft', message: '' }} columns={[
+    { key: 'publish_date', label: 'Date' },
+    { key: 'title', label: 'Title' },
+    { key: 'audience', label: 'Audience' },
+    { key: 'channel', label: 'Channel' },
+    { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> },
+    { key: 'message', label: 'Message' }
+  ]} fields={[
+    { name: 'title', label: 'Title', required: true },
+    { name: 'audience', label: 'Audience', type: 'select', options: ANNOUNCEMENT_AUDIENCES },
+    { name: 'channel', label: 'Channel', type: 'select', options: ANNOUNCEMENT_CHANNELS },
+    { name: 'publish_date', label: 'Date', type: 'date' },
+    { name: 'status', label: 'Status', type: 'select', options: ANNOUNCEMENT_STATUSES },
+    { name: 'message', label: 'Message', type: 'textarea', required: true }
+  ]} preparePayload={payload => ({ ...payload, publish_date: payload.publish_date || today() })} />;
+}
+function nextAnnualDate(value) {
+  if (!value) return '';
+  const [, month, day] = String(value).split('-');
+  if (!month || !day) return '';
+  const now = new Date();
+  let next = new Date(now.getFullYear(), Number(month) - 1, Number(day));
+  if (next < new Date(now.getFullYear(), now.getMonth(), now.getDate())) next = new Date(now.getFullYear() + 1, Number(month) - 1, Number(day));
+  return next.toISOString().slice(0, 10);
+}
+function daysUntil(dateValue) {
+  if (!dateValue) return 9999;
+  const start = new Date(`${today()}T00:00:00`);
+  const end = new Date(`${dateValue}T00:00:00`);
+  return Math.round((end - start) / 86400000);
+}
+function automaticReminderRows(data) {
+  const birthdayRows = data.members
+    .filter(member => member.dob)
+    .map(member => ({ id: `birth-${member.id}`, title: `${member.full_name} Birthday`, reminder_type: 'Birthday', reminder_date: nextAnnualDate(member.dob), assigned_to: '', status: 'Pending', notes: member.phone || '' }));
+  const membershipRows = data.members
+    .filter(member => member.joined_date)
+    .map(member => ({ id: `mem-${member.id}`, title: `${member.full_name} Membership Anniversary`, reminder_type: 'Membership Anniversary', reminder_date: nextAnnualDate(member.joined_date), assigned_to: '', status: 'Pending', notes: member.member_number || '' }));
+  const followUpRows = data.pastoralVisits
+    .filter(row => row.next_follow_up_date && row.status !== 'Cancelled')
+    .map(row => ({ id: `visit-${row.id}`, title: `${memberName(data, row.member_id)} Follow-up`, reminder_type: 'Pastoral Follow-up', reminder_date: row.next_follow_up_date, assigned_to: ministerName(data, row.minister_id), status: row.status === 'Completed' ? 'Pending' : row.status, notes: row.summary || '' }));
+  return [...birthdayRows, ...membershipRows, ...followUpRows]
+    .filter(row => daysUntil(row.reminder_date) <= 60)
+    .sort((a, b) => daysUntil(a.reminder_date) - daysUntil(b.reminder_date));
+}
+function RemindersManagement() {
+  const { data } = React.useContext(DataContext);
+  const automaticRows = automaticReminderRows(data);
+  const manualRows = data.reminders;
+  return <div className="space-y-4">
+    <SectionHeader title="Birthday, Anniversary, and Follow-up Reminders" />
+    <div className="grid lg:grid-cols-2 gap-4">
+      <div className="space-y-4">
+        <h3 className="font-extrabold text-slate-900">Upcoming Reminders</h3>
+        <Table columns={[{ key: 'reminder_date', label: 'Date' }, { key: 'title', label: 'Title' }, { key: 'reminder_type', label: 'Type' }, { key: 'assigned_to', label: 'Assigned To' }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }]} rows={[...automaticRows, ...manualRows].sort((a,b) => String(a.reminder_date).localeCompare(String(b.reminder_date)))} />
+      </div>
+      <ManualRemindersManagement />
+    </div>
+  </div>;
+}
+function ManualRemindersManagement() {
+  return <CrudManager title="Manual Reminders" collectionKey="reminders" emptyRecord={{ title: '', reminder_type: 'Meeting', reminder_date: today(), assigned_to: '', status: 'Pending', notes: '' }} columns={[
+    { key: 'reminder_date', label: 'Date' },
+    { key: 'title', label: 'Title' },
+    { key: 'reminder_type', label: 'Type' },
+    { key: 'assigned_to', label: 'Assigned To' },
+    { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }
+  ]} fields={[
+    { name: 'title', label: 'Title', required: true },
+    { name: 'reminder_type', label: 'Type', type: 'select', options: REMINDER_TYPES },
+    { name: 'reminder_date', label: 'Date', type: 'date', required: true },
+    { name: 'assigned_to', label: 'Assigned To' },
+    { name: 'status', label: 'Status', type: 'select', options: REMINDER_STATUSES },
+    { name: 'notes', label: 'Notes', type: 'textarea' }
+  ]} />;
+}
+function ReportsCenter() {
+  const { data } = React.useContext(DataContext);
+  const totalGiving = sumBy(data.giving, 'amount');
+  const totalExpenses = sumBy(data.expenses, 'amount');
+  const openPrayerCount = data.careRequests.filter(row => (row.request_type || 'Prayer') === 'Prayer' && row.status !== 'Closed').length;
+  const welfareTotal = sumBy(data.welfareRecords, 'amount');
+  const activeMembers = data.members.filter(row => row.membership_status === 'Active').length;
+  const reportRows = [
+    { id: 'members', report: 'Members', value: data.members.length, detail: `${activeMembers} active member records` },
+    { id: 'attendance', report: 'Attendance', value: data.attendance.length, detail: `${data.attendance.filter(row => row.status === 'Present').length} present records` },
+    { id: 'giving', report: 'Giving', value: money(totalGiving), detail: `${data.giving.length} giving records` },
+    { id: 'expenses', report: 'Expenses', value: money(totalExpenses), detail: `${data.expenses.length} expense records` },
+    { id: 'welfare', report: 'Welfare', value: money(welfareTotal), detail: `${data.welfareRecords.length} support records` },
+    { id: 'prayers', report: 'Prayer Requests', value: openPrayerCount, detail: `${data.careRequests.filter(row => (row.request_type || 'Prayer') === 'Prayer').length} total prayer records` },
+    { id: 'certificates', report: 'Certificates', value: data.certificates.length, detail: 'Generated certificate records' },
+    { id: 'documents', report: 'Documents', value: data.documents.length, detail: 'Church document records' }
+  ];
+  const givingByFund = data.funds.map(fund => ({ id: fund.id, fund: fund.name, amount: sumBy(data.giving.filter(row => row.fund_id === fund.id), 'amount'), expenses: sumBy(data.expenses.filter(row => row.fund_id === fund.id), 'amount') }));
+  return <div className="space-y-4">
+    <SectionHeader title="Reports" />
+    <div className="grid-fit">
+      <StatCard label="Members" value={data.members.length} icon="users" />
+      <StatCard label="Net Balance" value={money(totalGiving - totalExpenses)} icon="scale-balanced" accent="blue" />
+      <StatCard label="Open Prayers" value={openPrayerCount} icon="hands-praying" accent="amber" />
+      <StatCard label="Welfare Support" value={money(welfareTotal)} icon="hand-holding-heart" accent="rose" />
+    </div>
+    <div className="grid lg:grid-cols-2 gap-4">
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Operational Summary</h3><Table columns={[{ key: 'report', label: 'Report' }, { key: 'value', label: 'Value' }, { key: 'detail', label: 'Detail' }]} rows={reportRows} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Giving by Fund</h3><Table columns={[{ key: 'fund', label: 'Fund' }, { key: 'amount', label: 'Giving', render: r => money(r.amount) }, { key: 'expenses', label: 'Expenses', render: r => money(r.expenses) }, { key: 'balance', label: 'Balance', render: r => money(Number(r.amount || 0) - Number(r.expenses || 0)) }]} rows={givingByFund} /></div>
+    </div>
+  </div>;
+}
+function CredentialsManagement() {
+  const { data } = React.useContext(DataContext);
+  const linkedOptions = (d, form) => {
+    if (['senior_pastor', 'pastor'].includes(form.role)) return optionRows(d.ministers, 'full_name');
+    if (form.role === 'finance_officer') return optionRows(d.financeOfficers, 'full_name');
+    if (['member', 'ministry_leader'].includes(form.role)) return optionRows(d.members, 'full_name');
+    return [];
+  };
+  const linkedType = role => ['senior_pastor', 'pastor'].includes(role) ? 'minister' : role === 'finance_officer' ? 'finance_officer' : ['member', 'ministry_leader'].includes(role) ? 'member' : '';
+  return <CrudManager title="Accounts and Credentials" collectionKey="credentials" emptyRecord={{ role: 'member', linked_entity_type: 'member', linked_entity_id: '', username: '', temporary_password: '', force_password_change: true, account_active: true, is_system_default: false }} columns={[
+    { key: 'role', label: 'Role', render: r => ROLE_LABELS[r.role] || r.role }, { key: 'linked_entity_id', label: 'Linked Record', render: r => r.linked_entity_type === 'minister' ? ministerName(data, r.linked_entity_id) : r.linked_entity_type === 'finance_officer' ? nameBy(data.financeOfficers, r.linked_entity_id, 'full_name') : memberName(data, r.linked_entity_id) }, { key: 'username', label: 'Username' }, { key: 'temporary_password', label: 'Password' }, { key: 'force_password_change', label: 'Force Change', render: r => boolValue(r.force_password_change) ? 'Yes' : 'No' }, { key: 'account_active', label: 'Account', render: r => <span className={`pill ${r.account_active ? 'active' : 'inactive'}`}>{r.account_active ? 'Active' : 'Inactive'}</span> }
+  ]} fields={[
+    { name: 'role', label: 'Role', type: 'select', options: ROLE_OPTIONS }, { name: 'linked_entity_id', label: 'Linked Record', type: 'select', options: linkedOptions }, { name: 'username', label: 'Username' }, { name: 'temporary_password', label: 'Temporary Password' }, { name: 'force_password_change', label: 'Force Password Change', type: 'checkbox' }, { name: 'account_active', label: 'Account Active', type: 'checkbox' }
+  ]} preparePayload={(payload, d) => {
+    const role = payload.role || 'member';
+    const linked_entity_type = linkedType(role);
+    const linkedName = linked_entity_type === 'minister' ? ministerName(d, payload.linked_entity_id) : linked_entity_type === 'finance_officer' ? nameBy(d.financeOfficers, payload.linked_entity_id, 'full_name') : memberName(d, payload.linked_entity_id);
+    const username = payload.username || `${String(linkedName || role).toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '')}.${role.slice(0,3)}${Math.floor(Math.random()*900+100)}`;
+    const duplicate = d.credentials.find(x => x.id !== payload.id && String(x.username).toLowerCase() === String(username).toLowerCase());
+    if (duplicate) throw new Error('Username already exists.');
+    return { ...payload, linked_entity_type, username, temporary_password: payload.temporary_password || Math.random().toString(36).slice(-8) + '1', force_password_change: !!payload.force_password_change, account_active: !!payload.account_active };
+  }} />;
+}
+function SettingsManager() {
+  const { data, setChurchSettings } = React.useContext(DataContext);
+  const [form, setForm] = React.useState(data.churchSettings);
+  React.useEffect(() => setForm(data.churchSettings), [data.churchSettings]);
+  const signatureScale = Math.min(220, Math.max(70, Number(form.general_overseer_signature_scale || 135)));
+  const save = async e => { e.preventDefault(); await setChurchSettings(ensureDailyVerseSettings({ ...form, general_overseer_signature_scale: signatureScale })); };
+  return <div className="space-y-4">
+    <SectionHeader title="Church Settings" />
+    <form onSubmit={save} className="card p-5 space-y-4">
+      <div className="grid md:grid-cols-2 gap-4">
+        <Field label="Church Name"><input className="input" value={form.church_name || ''} onChange={e => setForm({ ...form, church_name: e.target.value })} /></Field>
+        <Field label="Contact"><input className="input" value={form.contact || ''} onChange={e => setForm({ ...form, contact: e.target.value })} /></Field>
+        <Field label="Address"><input className="input" value={form.address || ''} onChange={e => setForm({ ...form, address: e.target.value })} /></Field>
+        <Field label="Location"><input className="input" value={form.location || ''} onChange={e => setForm({ ...form, location: e.target.value })} /></Field>
+        <Field label="Logo"><ImageUploadInput value={form.logo_url || ''} folder="church-logo" shape="rounded-xl" onChange={logo_url => setForm({ ...form, logo_url })} /></Field>
+        <Field label="Verse of the Day"><input className="input" readOnly value={getAutoVerseOfTheDay()} /></Field>
+        <Field label="General Overseer Name"><input className="input" value={form.general_overseer_name || ''} onChange={e => setForm({ ...form, general_overseer_name: e.target.value })} /></Field>
+        <Field label="Certificate Signature"><ImageUploadInput value={form.general_overseer_signature_url || ''} folder="certificate-signatures" shape="rounded-xl" onChange={general_overseer_signature_url => setForm({ ...form, general_overseer_signature_url })} /></Field>
+        <div className="md:col-span-2 rounded-xl border bg-slate-50 p-4">
+          <div className="grid md:grid-cols-[1fr,220px] gap-4 items-center">
+            <div>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="text-sm font-extrabold text-slate-700">Certificate Signature Size</div>
+                <div className="pill neutral">{signatureScale}%</div>
+              </div>
+              <input type="range" min="70" max="220" step="5" value={signatureScale} onChange={e => setForm({ ...form, general_overseer_signature_scale: Number(e.target.value) })} className="w-full" />
+            </div>
+            <div className="h-28 rounded-xl border bg-white flex items-center justify-center overflow-hidden">
+              {form.general_overseer_signature_url ? <img src={form.general_overseer_signature_url} className="object-contain max-w-full" style={{ height: `${Math.round(52 * signatureScale / 100)}px` }} /> : <span className="text-slate-400 text-sm font-semibold">No signature</span>}
+            </div>
+          </div>
+        </div>
+        <div className="md:col-span-2"><Field label="Login Background"><LoginBackgroundEditorInput value={form.login_background_url || ''} onChange={login_background_url => setForm({ ...form, login_background_url })} /></Field></div>
+        <Field label="Theme"><select className="select" value={form.theme_choice || 'teal'} onChange={e => setForm({ ...form, theme_choice: e.target.value })}>{Object.entries(THEME_OPTIONS).map(([key, t]) => <option key={key} value={key}>{t.label}</option>)}</select></Field>
+        <Field label="Font"><select className="select" value={form.font_choice || 'inter'} onChange={e => setForm({ ...form, font_choice: e.target.value })}>{Object.entries(FONT_OPTIONS).map(([key, f]) => <option key={key} value={key}>{f.label}</option>)}</select></Field>
+        <Field label="Platform Lock"><label className="inline-flex items-center gap-2 font-semibold"><input type="checkbox" checked={!!form.platform_access_locked} onChange={e => setForm({ ...form, platform_access_locked: e.target.checked })} /> Lock non-admin portals</label></Field>
+      </div>
+      <div className="flex justify-end"><button className="btn btn-primary"><i className="fas fa-save"></i>Save Settings</button></div>
+    </form>
+  </div>;
+}
+function ChatManagement({ role, linkedId }) {
+  const { data, updateCollection } = React.useContext(DataContext);
+  const [receiver, setReceiver] = React.useState('');
+  const [message, setMessage] = React.useState('');
+  const contacts = React.useMemo(() => {
+    const list = [];
+    if (role !== 'member') {
+      data.ministers.forEach(x => list.push({ role: x.title?.toLowerCase().includes('senior') ? 'senior_pastor' : 'pastor', id: x.id, label: `${x.full_name} (${x.title})` }));
+      data.financeOfficers.forEach(x => list.push({ role: 'finance_officer', id: x.id, label: `${x.full_name} (Finance)` }));
+      data.members.forEach(x => list.push({ role: x.id === linkedId ? 'member' : 'member', id: x.id, label: `${x.full_name} (Member)` }));
+    } else {
+      data.ministers.forEach(x => list.push({ role: x.title?.toLowerCase().includes('senior') ? 'senior_pastor' : 'pastor', id: x.id, label: `${x.full_name} (${x.title})` }));
+      data.members.filter(x => x.id !== linkedId).slice(0, 20).forEach(x => list.push({ role: 'member', id: x.id, label: `${x.full_name} (Member)` }));
+    }
+    return list.filter(x => !(x.role === role && x.id === linkedId));
+  }, [data, role, linkedId]);
+  const messages = data.chats.filter(msg => {
+    const mineSender = msg.sender_role === role && (role === 'admin' ? !msg.sender_id : msg.sender_id === linkedId);
+    const mineReceiver = msg.receiver_role === role && (role === 'admin' ? !msg.receiver_id : msg.receiver_id === linkedId);
+    if (!mineSender && !mineReceiver) return false;
+    if (!receiver) return true;
+    const [rRole, rId] = receiver.split('|');
+    return (mineSender && msg.receiver_role === rRole && String(msg.receiver_id || '') === rId) || (mineReceiver && msg.sender_role === rRole && String(msg.sender_id || '') === rId);
+  }).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+  const send = async e => {
+    e.preventDefault();
+    if (!receiver || !message.trim()) return;
+    const [receiver_role, receiver_id] = receiver.split('|');
+    const payload = { id: uid(), sender_role: role, sender_id: role === 'admin' ? null : linkedId, receiver_role, receiver_id: receiver_id || null, message: message.trim(), is_read: false, deleted_by_sender: false, deleted_by_receiver: false, flagged: false, created_at: nowIso() };
+    await updateCollection('chats', rows => [...safeArray(rows), payload], { silentSuccess: true, suppressBusy: true });
+    setMessage('');
+  };
+  return <div className="space-y-4">
+    <SectionHeader title="Church Chat" />
+    <div className="grid lg:grid-cols-[320px,1fr] gap-4">
+      <div className="card p-4 space-y-3">
+        <Field label="Recipient"><select className="select" value={receiver} onChange={e => setReceiver(e.target.value)}><option value="">All conversations</option>{contacts.map(c => <option key={`${c.role}|${c.id}`} value={`${c.role}|${c.id}`}>{c.label}</option>)}</select></Field>
+        <form onSubmit={send} className="space-y-3"><textarea className="textarea" value={message} onChange={e => setMessage(e.target.value)} placeholder="Write message..."></textarea><button className="btn btn-primary w-full"><i className="fas fa-paper-plane"></i>Send</button></form>
+      </div>
+      <div className="space-y-3">
+        {messages.length ? messages.map(msg => {
+          const isMine = msg.sender_role === role && (role === 'admin' ? !msg.sender_id : msg.sender_id === linkedId);
+          const sender = msg.sender_role === 'admin' ? 'Church Admin' : msg.sender_role.includes('pastor') ? ministerName(data, msg.sender_id) : msg.sender_role === 'finance_officer' ? nameBy(data.financeOfficers, msg.sender_id, 'full_name') : memberName(data, msg.sender_id);
+          return <div key={msg.id} className={`card p-4 ${isMine ? 'border-teal-200' : ''}`}><div className="flex justify-between gap-3"><div className="font-bold">{sender}</div><div className="text-xs text-slate-400">{new Date(msg.created_at).toLocaleString()}</div></div><div className="mt-2 whitespace-pre-wrap">{msg.message}</div></div>;
+        }) : <EmptyState text="No chat messages yet." />}
+      </div>
+    </div>
+  </div>;
+}
+function OverviewDashboard({ title='Dashboard' }) {
+  const { data } = React.useContext(DataContext);
+  const recentService = [...data.services].sort((a,b) => new Date(b.service_date) - new Date(a.service_date))[0];
+  const presentCount = recentService ? data.attendance.filter(a => a.service_id === recentService.id && a.status === 'Present').length : 0;
+  const prayerRows = data.careRequests.filter(row => (row.request_type || 'Prayer') === 'Prayer');
+  return <div className="space-y-5">
+    <SectionHeader title={title} />
+    <div className="grid-fit">
+      <StatCard label="Members" value={data.members.length} icon="users" />
+      <StatCard label="Ministries" value={data.ministries.length} icon="people-group" accent="blue" />
+      <StatCard label="Latest Attendance" value={presentCount} icon="clipboard-check" accent="amber" />
+      <StatCard label="This Month Giving" value={money(data.giving.filter(g => String(g.giving_date || '').slice(0,7) === today().slice(0,7)).reduce((s,g) => s + Number(g.amount || 0), 0))} icon="hand-holding-dollar" accent="purple" />
+    </div>
+    <div className="grid lg:grid-cols-2 gap-4">
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Prayer Requests</h3><Table columns={[{ key: 'requester', label: 'Name', render: r => prayerRequesterName(data, r) }, { key: 'privacy_level', label: 'Privacy', render: r => r.privacy_level || 'Prayer Team' }, { key: 'priority', label: 'Priority' }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }]} rows={prayerRows.slice(0, 6)} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Upcoming Events</h3><Table columns={[{ key: 'title', label: 'Event' }, { key: 'event_date', label: 'Date' }, { key: 'ministry_id', label: 'Ministry', render: r => ministryName(data, r.ministry_id) }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }]} rows={data.events.slice(0, 6)} /></div>
+    </div>
+  </div>;
+}
+function linkedUserName(data, role, linkedId) {
+  if (role === 'admin') return 'Church Admin';
+  if (['senior_pastor', 'pastor'].includes(role)) return ministerName(data, linkedId);
+  if (role === 'finance_officer') return nameBy(data.financeOfficers, linkedId, 'full_name');
+  return memberName(data, linkedId);
+}
+function roleNavItems(role) {
+  if (role === 'superadmin') return [['dashboard','Dashboard','gauge-high'], ['credentials','Admin Credentials','user-shield'], ['settings','Church Settings','gear']];
+  if (role === 'admin') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['households','Households','house'], ['ministries','Ministries','people-group'], ['ministers','Ministers','user-tie'], ['financeofficers','Finance Officers','calculator'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance','wallet'], ['events','Events','calendar-days'], ['assignments','Ministry Assignments','sitemap'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['credentials','Accounts','key'], ['chat','Chat','comments'], ['settings','Settings','gear']];
+  if (role === 'senior_pastor') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance Summary','chart-pie'], ['events','Events','calendar-days'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
+  if (role === 'pastor') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['events','Events','calendar-days'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
+  if (role === 'finance_officer') return [['dashboard','Dashboard','gauge-high'], ['finance','Finance Center','wallet'], ['members','Members','users'], ['pledges','Pledges','file-signature'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
+  if (role === 'ministry_leader') return [['dashboard','Dashboard','gauge-high'], ['members','Ministry Members','users'], ['assignments','Assignments','sitemap'], ['events','Events','calendar-days'], ['volunteers','Volunteers','hands-helping'], ['announcements','Announcements','bullhorn'], ['chat','Chat','comments']];
+  if (role === 'member') return [['dashboard','Dashboard','gauge-high'], ['profile','My Profile','id-card'], ['giving','My Giving','hand-holding-dollar'], ['pledges','My Pledges','file-signature'], ['attendance','My Attendance','clipboard-check'], ['care','Prayer Requests','hands-praying'], ['events','Events','calendar-days'], ['announcements','Announcements','bullhorn'], ['chat','Chat','comments']];
+  return [['dashboard','Dashboard','gauge-high']];
+}
+
+function AppShell() {
+  const store = React.useContext(DataContext);
+  const [session, setSession] = React.useState({ role: null, linkedId: null, credentialId: null, username: '' });
+  const [activeNav, setActiveNav] = React.useState('dashboard');
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+  const [forcePasswordModal, setForcePasswordModal] = React.useState(false);
+  React.useEffect(() => {
+    if (!store.loaded) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+      if (!saved?.role) return;
+      setSession(saved);
+      store.setPresenceStatus(saved.role, saved.linkedId, true);
+    } catch (e) {}
+  }, [store.loaded]);
+  const loginWithCredentials = async (username, password) => {
+    const lower = String(username || '').trim().toLowerCase();
+    if (lower === 'superadmin' && password === 'super12345') {
+      const next = { role: 'superadmin', linkedId: null, credentialId: 'local-superadmin', username: 'superadmin' };
+      setSession(next); setActiveNav('dashboard'); localStorage.setItem(SESSION_KEY, JSON.stringify(next)); return;
+    }
+    const credential = store.data.credentials.find(c => String(c.username || '').toLowerCase() === lower && String(c.temporary_password || '') === String(password || '') && c.account_active);
+    if (!credential) throw new Error(store.data.churchSettings.failed_login_greeting_message || 'Login failed.');
+    const next = { role: credential.role, linkedId: credential.linked_entity_id || null, credentialId: credential.id, username: credential.username };
+    setSession(next);
+    setActiveNav('dashboard');
+    localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    await store.setPresenceStatus(credential.role, credential.linked_entity_id, true);
+    if (boolValue(credential.force_password_change)) setForcePasswordModal(true);
+  };
+  const logout = async () => {
+    if (session.role) await store.setPresenceStatus(session.role, session.linkedId, false);
+    setSession({ role: null, linkedId: null, credentialId: null, username: '' });
+    setActiveNav('dashboard');
+    localStorage.removeItem(SESSION_KEY);
+  };
+  const changeOwnPassword = async newPassword => {
+    await store.updateCollection('credentials', rows => rows.map(c => c.id === session.credentialId ? { ...c, temporary_password: newPassword, force_password_change: false } : c), { successMessage: 'Password changed successfully.' });
+    setForcePasswordModal(false);
+  };
+  const contextValue = { session, setSession, activeNav, setActiveNav, loginWithCredentials, logout, mobileNavOpen, setMobileNavOpen, forcePasswordModal, setForcePasswordModal, changeOwnPassword };
+  if (!store.loaded) return <BusyOverlay text="Loading church management system..." />;
+  return <SessionContext.Provider value={contextValue}>
+    <div className="min-h-screen flex flex-col">
+      <Header />
+      <OfflineBanner state={store.offlineState} onSync={store.flushPendingChanges} />
+      <div className="flex flex-1 min-h-0">
+        {session.role && <Sidebar />}
+        <main className="flex-1 p-3 md:p-6 overflow-x-hidden">{!session.role ? <LoginScreen /> : <DashboardRouter />}</main>
+      </div>
+      <AppFooter />
+      <ForcePasswordChangeModal />
+      <BusyOverlay text={store.busyText} />
+      <ToastStack notifications={store.notifications} onDismiss={store.dismissNotification} />
+    </div>
+  </SessionContext.Provider>;
+}
+function Header() {
+  const { data, reloadData } = React.useContext(DataContext);
+  const { session, mobileNavOpen, setMobileNavOpen } = React.useContext(SessionContext);
+  return <header className="sticky-header px-3 md:px-6 py-3 flex items-center justify-between gap-3 no-print">
+    <div className="flex items-center gap-3 min-w-0">
+      {session.role && <button className="md:hidden w-11 h-11 rounded-lg border flex items-center justify-center" onClick={() => setMobileNavOpen(!mobileNavOpen)}><i className={`fas ${mobileNavOpen ? 'fa-times' : 'fa-bars'}`}></i></button>}
+      {data.churchSettings.logo_url ? <img src={data.churchSettings.logo_url} className="w-12 h-12 rounded-xl object-cover border" /> : <div className="w-12 h-12 rounded-xl bg-[var(--theme-primary)] text-white flex items-center justify-center"><i className="fas fa-church"></i></div>}
+      <div className="min-w-0"><h1 className="text-base sm:text-xl md:text-2xl font-extrabold break-words">{data.churchSettings.church_name}</h1><p className="text-xs opacity-75 truncate">{[data.churchSettings.address, data.churchSettings.contact, data.churchSettings.location].filter(Boolean).join(' | ') || 'Church Management System'}</p></div>
+    </div>
+    <div className="flex items-center gap-2 shrink-0">
+      {session.role && <span className="pill neutral hidden sm:inline-flex"><i className="fas fa-user-shield"></i>{ROLE_LABELS[session.role]}</span>}
+      {session.role && <button className="btn btn-outline" onClick={() => reloadData({ silent: false })}><i className="fas fa-rotate"></i><span className="hidden md:inline">Refresh</span></button>}
+    </div>
+  </header>;
+}
+function Sidebar() {
+  const { data } = React.useContext(DataContext);
+  const { session, activeNav, setActiveNav, logout, mobileNavOpen, setMobileNavOpen } = React.useContext(SessionContext);
+  const items = [...roleNavItems(session.role), ['logout','Logout','right-from-bracket']];
+  const navigate = key => {
+    if (key === 'logout') return logout();
+    setActiveNav(key);
+    setMobileNavOpen(false);
+  };
+  const list = <div className="space-y-1">{items.map(([key,label,icon]) => <button key={key} onClick={() => navigate(key)} className={`w-full text-left px-3 py-3 rounded-lg flex items-center gap-3 ${activeNav === key ? 'bg-[var(--theme-primary-soft)] text-[color:var(--theme-text-strong)] font-extrabold' : 'hover:bg-slate-100'}`}><i className={`fas fa-${icon} w-5`}></i><span className="text-sm flex-1">{label}</span></button>)}</div>;
+  return <>
+    {mobileNavOpen && <div className="fixed inset-0 z-40 md:hidden no-print"><div className="absolute inset-0 bg-slate-950/45" onClick={() => setMobileNavOpen(false)}></div><aside className="absolute left-0 top-0 bottom-0 w-80 max-w-[88vw] bg-white p-4 shadow-xl"><div className="font-extrabold mb-1">{ROLE_LABELS[session.role]}</div><div className="text-xs text-slate-500 mb-4">{linkedUserName(data, session.role, session.linkedId)}</div><div className="sidebar-scroll">{list}</div></aside></div>}
+    <aside className="w-72 bg-white border-r p-4 hidden md:block no-print"><div className="font-extrabold mb-1">{ROLE_LABELS[session.role]}</div><div className="text-xs text-slate-500 mb-4">{linkedUserName(data, session.role, session.linkedId)}</div><div className="sidebar-scroll">{list}</div></aside>
+  </>;
+}
+function useRotatingLoginVerse() {
+  const [index, setIndex] = React.useState(() => Math.floor(Date.now() / 60000) % DAILY_VERSES.length);
+  React.useEffect(() => {
+    const timer = setInterval(() => setIndex(value => (value + 1) % DAILY_VERSES.length), 60000);
+    return () => clearInterval(timer);
+  }, []);
+  return DAILY_VERSES[index % DAILY_VERSES.length] || getAutoVerseOfTheDay();
+}
+function LoginScreen() {
+  const { data, notify } = React.useContext(DataContext);
+  const { loginWithCredentials } = React.useContext(SessionContext);
+  const [username, setUsername] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const loginVerse = useRotatingLoginVerse();
+  const login = async e => {
+    e.preventDefault();
+    setBusy(true);
+    try { await loginWithCredentials(username, password); }
+    catch (error) { notify('error', error?.message || 'Login failed.'); }
+    finally { setBusy(false); }
+  };
+  const loginBackground = data.churchSettings.login_background_url || '';
+  const heroStyle = loginBackground ? {
+    backgroundImage: `linear-gradient(rgba(15,23,42,.58), rgba(15,23,42,.42)), url(${loginBackground})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center'
+  } : { background: 'linear-gradient(135deg,#0f172a 0%,#134e4a 58%,#0f766e 100%)' };
+  const pageStyle = loginBackground ? {
+    backgroundImage: `linear-gradient(rgba(248,250,252,.82), rgba(241,245,249,.84)), url(${loginBackground})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center'
+  } : undefined;
+  return <div className="min-h-[calc(100vh-88px)] -m-3 md:-m-6 flex items-stretch" style={pageStyle}>
+    <div className="hidden lg:flex lg:w-[58%] relative overflow-hidden" style={heroStyle}>
+      <div className="absolute inset-0 bg-gradient-to-r from-slate-950/30 via-transparent to-white/20"></div>
+      <div className="relative z-10 flex flex-col justify-center px-14 xl:px-20 text-white w-full">
+        <div className="max-w-xl">
+          {data.churchSettings.logo_url ? <img src={data.churchSettings.logo_url} className="w-20 h-20 rounded-2xl object-cover border border-white/25 bg-white shadow-xl mb-6" /> : <div className="w-20 h-20 rounded-2xl bg-white/16 border border-white/25 flex items-center justify-center text-3xl shadow-xl mb-6"><i className="fas fa-church"></i></div>}
+          <h2 className="text-5xl xl:text-6xl font-black leading-tight text-white">{data.churchSettings.church_name}</h2>
+        </div>
+        <div className="absolute left-12 bottom-10 right-12 rounded-3xl border border-white/30 bg-white/14 backdrop-blur-md p-5 shadow-2xl">
+          <div className="text-xs font-extrabold uppercase tracking-[0.16em] text-white/70 mb-2">Daily Scripture</div>
+          <div className="text-lg xl:text-xl font-bold leading-relaxed text-white">{loginVerse}</div>
+        </div>
+      </div>
+    </div>
+    <div className="flex-1 flex items-center justify-center px-4 py-10 md:px-8">
+      <form onSubmit={login} className="w-full max-w-xl rounded-[2rem] bg-white shadow-2xl border border-slate-200 px-6 py-8 md:px-10 md:py-10 space-y-4">
+        <div className="flex flex-col items-center text-center mb-5">
+          {data.churchSettings.logo_url ? <img src={data.churchSettings.logo_url} className="w-24 h-24 rounded-2xl object-cover border shadow bg-white" /> : <div className="w-24 h-24 rounded-2xl bg-slate-100 border flex items-center justify-center shadow"><i className="fas fa-church text-3xl text-slate-500"></i></div>}
+          <h1 className="mt-5 text-2xl md:text-3xl font-black tracking-wide text-slate-800 uppercase">{data.churchSettings.church_name}</h1>
+          <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-semibold leading-relaxed text-slate-600">{loginVerse}</div>
+        </div>
+        <Field label="Username"><div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><i className="fas fa-user"></i></span><input className="input pl-11 h-14" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" required /></div></Field>
+        <Field label="Password"><div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><i className="fas fa-key"></i></span><input className="input pl-11 h-14" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" required /></div></Field>
+        <button className="btn btn-primary w-full h-14" disabled={busy}><i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-right-to-bracket'}`}></i>{busy ? 'Signing In' : 'Sign In'}</button>
+      </form>
+    </div>
+  </div>;
+}
+function ForcePasswordChangeModal() {
+  const { forcePasswordModal, changeOwnPassword } = React.useContext(SessionContext);
+  const [password, setPassword] = React.useState('');
+  const save = e => { e.preventDefault(); if (password.length < 6) return; changeOwnPassword(password); setPassword(''); };
+  return <Modal open={forcePasswordModal} title="Change Password" onClose={() => {}}>
+    <form onSubmit={save} className="space-y-4"><Field label="New Password"><input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} minLength="6" required /></Field><div className="flex justify-end"><button className="btn btn-primary">Save Password</button></div></form>
+  </Modal>;
+}
+function DashboardRouter() {
+  const { session, activeNav } = React.useContext(SessionContext);
+  const { data } = React.useContext(DataContext);
+  if (data.churchSettings.platform_access_locked && !['admin','superadmin'].includes(session.role)) return <OverviewDashboard title={`${ROLE_LABELS[session.role]} Portal Locked`} />;
+  if (session.role === 'superadmin') return <SuperAdminDashboard activeNav={activeNav} />;
+  if (session.role === 'admin') return <AdminDashboard activeNav={activeNav} />;
+  if (session.role === 'senior_pastor') return <SeniorPastorDashboard activeNav={activeNav} />;
+  if (session.role === 'pastor') return <PastorDashboard activeNav={activeNav} />;
+  if (session.role === 'finance_officer') return <FinanceOfficerDashboard activeNav={activeNav} />;
+  if (session.role === 'ministry_leader') return <MinistryLeaderDashboard activeNav={activeNav} />;
+  if (session.role === 'member') return <MemberDashboard activeNav={activeNav} />;
+  return <OverviewDashboard />;
+}
+function SuperAdminDashboard({ activeNav }) {
+  if (activeNav === 'credentials') return <CredentialsManagement />;
+  if (activeNav === 'settings') return <SettingsManager />;
+  return <OverviewDashboard title="Super Admin Dashboard" />;
+}
+function AdminDashboard({ activeNav }) {
+  if (activeNav === 'members') return <MembersManagement />;
+  if (activeNav === 'households') return <HouseholdsManagement />;
+  if (activeNav === 'ministries') return <MinistriesManagement />;
+  if (activeNav === 'ministers') return <MinistersManagement />;
+  if (activeNav === 'financeofficers') return <FinanceOfficersManagement />;
+  if (activeNav === 'services') return <ServicesManagement />;
+  if (activeNav === 'attendance') return <AttendanceManagement />;
+  if (activeNav === 'visitors') return <VisitorsManagement />;
+  if (activeNav === 'care') return <CareRequestsManagement />;
+  if (activeNav === 'visits') return <PastoralVisitsManagement />;
+  if (activeNav === 'welfare') return <WelfareSupportManagement />;
+  if (activeNav === 'finance') return <FinanceCenter />;
+  if (activeNav === 'events') return <EventsCenter />;
+  if (activeNav === 'assignments') return <MinistryEnrollmentManagement />;
+  if (activeNav === 'documents') return <DocumentsManagement />;
+  if (activeNav === 'certificates') return <CertificatesManagement />;
+  if (activeNav === 'announcements') return <AnnouncementsManagement />;
+  if (activeNav === 'reminders') return <RemindersManagement />;
+  if (activeNav === 'reports') return <ReportsCenter />;
+  if (activeNav === 'credentials') return <CredentialsManagement />;
+  if (activeNav === 'chat') return <ChatManagement role="admin" linkedId={null} />;
+  if (activeNav === 'settings') return <SettingsManager />;
+  return <OverviewDashboard title="Church Admin Dashboard" />;
+}
+function SeniorPastorDashboard({ activeNav }) {
+  const { session } = React.useContext(SessionContext);
+  if (activeNav === 'members') return <MembersManagement />;
+  if (activeNav === 'services') return <ServicesManagement />;
+  if (activeNav === 'attendance') return <AttendanceManagement />;
+  if (activeNav === 'visitors') return <VisitorsManagement />;
+  if (activeNav === 'care') return <CareRequestsManagement />;
+  if (activeNav === 'visits') return <PastoralVisitsManagement />;
+  if (activeNav === 'welfare') return <WelfareSupportManagement />;
+  if (activeNav === 'finance') return <FinanceSummary />;
+  if (activeNav === 'events') return <EventsCenter />;
+  if (activeNav === 'documents') return <DocumentsManagement />;
+  if (activeNav === 'certificates') return <CertificatesManagement />;
+  if (activeNav === 'announcements') return <AnnouncementsManagement />;
+  if (activeNav === 'reminders') return <RemindersManagement />;
+  if (activeNav === 'reports') return <ReportsCenter />;
+  if (activeNav === 'chat') return <ChatManagement role="senior_pastor" linkedId={session.linkedId} />;
+  return <OverviewDashboard title="Senior Pastor Dashboard" />;
+}
+function PastorDashboard({ activeNav }) {
+  const { session } = React.useContext(SessionContext);
+  if (activeNav === 'members') return <MembersManagement />;
+  if (activeNav === 'attendance') return <AttendanceManagement />;
+  if (activeNav === 'visitors') return <VisitorsManagement />;
+  if (activeNav === 'care') return <CareRequestsManagement filterFn={row => !row.assigned_minister_id || row.assigned_minister_id === session.linkedId} initialPatch={{ assigned_minister_id: session.linkedId }} />;
+  if (activeNav === 'visits') return <PastoralVisitsManagement filterFn={row => !row.minister_id || row.minister_id === session.linkedId} />;
+  if (activeNav === 'welfare') return <WelfareSupportManagement />;
+  if (activeNav === 'events') return <EventsCenter />;
+  if (activeNav === 'certificates') return <CertificatesManagement />;
+  if (activeNav === 'announcements') return <AnnouncementsManagement />;
+  if (activeNav === 'reminders') return <RemindersManagement />;
+  if (activeNav === 'reports') return <ReportsCenter />;
+  if (activeNav === 'chat') return <ChatManagement role="pastor" linkedId={session.linkedId} />;
+  return <OverviewDashboard title="Pastor Dashboard" />;
+}
+function FinanceOfficerDashboard({ activeNav }) {
+  const { session } = React.useContext(SessionContext);
+  if (activeNav === 'finance') return <FinanceCenter />;
+  if (activeNav === 'members') return <MembersManagement />;
+  if (activeNav === 'pledges') return <PledgesManagement />;
+  if (activeNav === 'reports') return <ReportsCenter />;
+  if (activeNav === 'chat') return <ChatManagement role="finance_officer" linkedId={session.linkedId} />;
+  return <OverviewDashboard title="Finance Dashboard" />;
+}
+function MinistryLeaderDashboard({ activeNav }) {
+  const { data } = React.useContext(DataContext);
+  const { session } = React.useContext(SessionContext);
+  const ministryIds = data.ministries.filter(m => m.leader_member_id === session.linkedId || m.id === data.members.find(x => x.id === session.linkedId)?.primary_ministry_id).map(m => m.id);
+  const memberFilter = row => ministryIds.includes(row.primary_ministry_id) || data.memberMinistries.some(mm => mm.member_id === row.id && ministryIds.includes(mm.ministry_id));
+  if (activeNav === 'members') return <MembersManagement title="Ministry Member Records" filterFn={memberFilter} />;
+  if (activeNav === 'assignments') return <MinistryEnrollmentManagement />;
+  if (activeNav === 'events') return <EventsCenter ministryIds={ministryIds} />;
+  if (activeNav === 'volunteers') return <VolunteerSchedulesManagement ministryIds={ministryIds} />;
+  if (activeNav === 'announcements') return <AnnouncementsManagement readOnly />;
+  if (activeNav === 'chat') return <ChatManagement role="ministry_leader" linkedId={session.linkedId} />;
+  return <OverviewDashboard title="Ministry Leader Dashboard" />;
+}
+function MemberProfile({ member }) {
+  const { data, updateCollection } = React.useContext(DataContext);
+  const [form, setForm] = React.useState(member || {});
+  React.useEffect(() => setForm(member || {}), [member?.id]);
+  if (!member) return <EmptyState text="No linked member record found." />;
+  const save = async e => { e.preventDefault(); await updateCollection('members', rows => rows.map(row => row.id === member.id ? { ...row, ...form } : row)); };
+  const myGiving = data.giving.filter(row => row.member_id === member.id);
+  const myAttendance = data.attendance.filter(row => row.member_id === member.id);
+  const myPrayers = data.careRequests.filter(row => row.member_id === member.id && (row.request_type || 'Prayer') === 'Prayer');
+  const myVisits = data.pastoralVisits.filter(row => row.member_id === member.id);
+  const myMinistries = data.memberMinistries.filter(row => row.member_id === member.id);
+  const myCertificates = data.certificates.filter(row => row.member_id === member.id);
+  const myWelfare = data.welfareRecords.filter(row => row.member_id === member.id);
+  return <div className="space-y-4">
+    <SectionHeader title="My Profile" />
+    <div className="grid-fit">
+      <StatCard label="Giving Total" value={money(sumBy(myGiving, 'amount'))} icon="hand-holding-dollar" />
+      <StatCard label="Attendance" value={myAttendance.length} icon="clipboard-check" accent="blue" />
+      <StatCard label="Prayer Requests" value={myPrayers.length} icon="hands-praying" accent="amber" />
+      <StatCard label="Certificates" value={myCertificates.length} icon="certificate" accent="purple" />
+    </div>
+    <form onSubmit={save} className="card p-5 space-y-4">
+      <div className="grid md:grid-cols-2 gap-4">
+        <Field label="Photo"><ImageUploadInput value={form.photo_url || ''} folder="members" shape="rounded-full" onChange={photo_url => setForm({ ...form, photo_url })} /></Field>
+        <Field label="Full Name"><input className="input" value={form.full_name || ''} onChange={e => setForm({ ...form, full_name: e.target.value })} /></Field>
+        <Field label="Phone"><input className="input" value={form.phone || ''} onChange={e => setForm({ ...form, phone: e.target.value })} /></Field>
+        <Field label="Email"><input className="input" value={form.email || ''} onChange={e => setForm({ ...form, email: e.target.value })} /></Field>
+        <Field label="Address"><input className="input" value={form.address || ''} onChange={e => setForm({ ...form, address: e.target.value })} /></Field>
+        <Field label="Primary Ministry"><input className="input" readOnly value={ministryName(data, form.primary_ministry_id)} /></Field>
+        <Field label="Membership Status"><input className="input" readOnly value={form.membership_status || ''} /></Field>
+      </div>
+      <div className="flex justify-end"><button className="btn btn-primary">Save Profile</button></div>
+    </form>
+    <div className="grid lg:grid-cols-2 gap-4">
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Ministry History</h3><Table columns={[{ key: 'ministry_id', label: 'Ministry', render: r => ministryName(data, r.ministry_id) }, { key: 'role_title', label: 'Role' }, { key: 'joined_at', label: 'Joined' }, { key: 'active', label: 'Status', render: r => r.active ? 'Active' : 'Inactive' }]} rows={myMinistries} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Prayer and Care History</h3><Table columns={[{ key: 'requested_at', label: 'Date', render: r => r.requested_at ? new Date(r.requested_at).toLocaleDateString() : '' }, { key: 'privacy_level', label: 'Privacy' }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }, { key: 'request_text', label: 'Request' }]} rows={myPrayers} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Pastoral Visits</h3><Table columns={[{ key: 'visit_date', label: 'Date' }, { key: 'minister_id', label: 'Minister', render: r => ministerName(data, r.minister_id) }, { key: 'visit_type', label: 'Type' }, { key: 'status', label: 'Status' }]} rows={myVisits} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Certificates and Welfare</h3><Table columns={[{ key: 'kind', label: 'Record' }, { key: 'date', label: 'Date' }, { key: 'detail', label: 'Detail' }, { key: 'status', label: 'Status' }]} rows={[...myCertificates.map(row => ({ id: row.id, kind: row.certificate_type, date: row.certificate_date, detail: row.certificate_number, status: 'Issued' })), ...myWelfare.map(row => ({ id: row.id, kind: row.support_type, date: row.support_date, detail: money(row.amount), status: row.status }))]} /></div>
+    </div>
+  </div>;
+}
+function MemberGivingView({ member }) {
+  const { data } = React.useContext(DataContext);
+  const rows = data.giving.filter(row => row.member_id === member.id);
+  return <div className="space-y-4"><SectionHeader title="My Giving" subtitle={`Total: ${money(sumBy(rows, 'amount'))}`} /><Table columns={[{ key: 'giving_date', label: 'Date' }, { key: 'fund_id', label: 'Fund', render: r => fundName(data, r.fund_id) }, { key: 'amount', label: 'Amount', render: r => <span className="font-extrabold text-emerald-700">{money(r.amount)}</span> }, { key: 'payment_method', label: 'Method' }, { key: 'reference', label: 'Reference' }]} rows={rows} /></div>;
+}
+function MemberPledgesView({ member }) {
+  const { data } = React.useContext(DataContext);
+  const rows = data.pledges.filter(row => row.member_id === member.id);
+  return <div className="space-y-4"><SectionHeader title="My Pledges" /><Table columns={[{ key: 'fund_id', label: 'Fund', render: r => fundName(data, r.fund_id) }, { key: 'pledge_date', label: 'Pledge Date' }, { key: 'pledge_amount', label: 'Pledged', render: r => money(r.pledge_amount) }, { key: 'amount_received', label: 'Received', render: r => money(r.amount_received) }, { key: 'balance', label: 'Balance', render: r => money(Math.max(Number(r.pledge_amount || 0) - Number(r.amount_received || 0), 0)) }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }]} rows={rows} /></div>;
+}
+function MemberAttendanceView({ member }) {
+  const { data } = React.useContext(DataContext);
+  const rows = data.attendance.filter(row => row.member_id === member.id);
+  return <div className="space-y-4"><SectionHeader title="My Attendance" /><Table columns={[{ key: 'service_id', label: 'Service', render: r => serviceLabel(data, r.service_id) }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }, { key: 'checked_in_at', label: 'Checked In', render: r => r.checked_in_at ? new Date(r.checked_in_at).toLocaleString() : '' }, { key: 'notes', label: 'Notes' }]} rows={rows} /></div>;
+}
+function MemberCareView({ member }) {
+  const { data, updateCollection, notify } = React.useContext(DataContext);
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState({ privacy_level: 'Prayer Team', priority: 'Normal', request_text: '' });
+  const rows = data.careRequests.filter(row => row.member_id === member.id && (row.request_type || 'Prayer') === 'Prayer');
+  const save = async e => {
+    e.preventDefault();
+    if (!form.request_text.trim()) { notify('error', 'Prayer request is required.'); return; }
+    const payload = { id: uid(), member_id: member.id, requester_name: member.full_name, request_type: 'Prayer', privacy_level: form.privacy_level, priority: form.priority, status: 'Open', assigned_minister_id: '', request_text: form.request_text.trim(), private_notes: '', requested_at: nowIso(), prayed_at: '', answered_at: '', closed_at: '' };
+    await updateCollection('careRequests', items => [payload, ...safeArray(items)], { successMessage: 'Prayer request submitted successfully.' });
+    setForm({ privacy_level: 'Prayer Team', priority: 'Normal', request_text: '' });
+    setOpen(false);
+  };
+  return <div className="space-y-4"><SectionHeader title="Prayer Requests" actions={<button className="btn btn-primary" onClick={() => setOpen(true)}><i className="fas fa-plus"></i>Submit Prayer Request</button>} /><Table columns={[{ key: 'privacy_level', label: 'Privacy', render: r => r.privacy_level || 'Prayer Team' }, { key: 'priority', label: 'Priority', render: r => <span className={`pill ${statusClass(r.priority)}`}>{r.priority}</span> }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }, { key: 'assigned_minister_id', label: 'Assigned Minister', render: r => ministerName(data, r.assigned_minister_id) }, { key: 'request_text', label: 'Request' }]} rows={rows} /><Modal open={open} title="Submit Prayer Request" onClose={() => setOpen(false)}><form onSubmit={save} className="space-y-4"><div className="grid md:grid-cols-2 gap-4"><Field label="Privacy"><select className="select" value={form.privacy_level} onChange={e => setForm({ ...form, privacy_level: e.target.value })}>{PRAYER_PRIVACY_OPTIONS.map(x => <option key={x}>{x}</option>)}</select></Field><Field label="Priority"><select className="select" value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map(x => <option key={x}>{x}</option>)}</select></Field></div><Field label="Request"><textarea className="textarea" value={form.request_text} onChange={e => setForm({ ...form, request_text: e.target.value })}></textarea></Field><div className="flex justify-end gap-2"><button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button><button className="btn btn-primary">Submit</button></div></form></Modal></div>;
+}
+function MemberEventsView({ member }) {
+  const { data, updateCollection } = React.useContext(DataContext);
+  const register = async event => {
+    const exists = data.eventRegistrations.some(row => row.event_id === event.id && row.member_id === member.id);
+    if (exists) return;
+    const payload = { id: uid(), event_id: event.id, member_id: member.id, visitor_name: '', registration_status: 'Registered', registered_at: nowIso(), notes: '' };
+    await updateCollection('eventRegistrations', rows => [payload, ...safeArray(rows)], { successMessage: 'Event registration saved successfully.' });
+  };
+  const rows = data.events.map(event => ({ ...event, registered: data.eventRegistrations.some(row => row.event_id === event.id && row.member_id === member.id) }));
+  return <div className="space-y-4"><SectionHeader title="Events" /><Table columns={[{ key: 'title', label: 'Event' }, { key: 'ministry_id', label: 'Ministry', render: r => ministryName(data, r.ministry_id) }, { key: 'event_date', label: 'Date' }, { key: 'venue', label: 'Venue' }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }, { key: 'registered', label: 'Registration', render: r => r.registered ? <span className="pill active">Registered</span> : <button className="btn btn-outline !py-1.5" onClick={() => register(r)}>Register</button> }]} rows={rows} /></div>;
+}
+function MemberDashboard({ activeNav }) {
+  const { data } = React.useContext(DataContext);
+  const { session } = React.useContext(SessionContext);
+  const member = data.members.find(x => x.id === session.linkedId);
+  if (!member) return <EmptyState text="No linked member record found." />;
+  if (activeNav === 'profile') return <MemberProfile member={member} />;
+  if (activeNav === 'giving') return <MemberGivingView member={member} />;
+  if (activeNav === 'pledges') return <MemberPledgesView member={member} />;
+  if (activeNav === 'attendance') return <MemberAttendanceView member={member} />;
+  if (activeNav === 'care') return <MemberCareView member={member} />;
+  if (activeNav === 'events') return <MemberEventsView member={member} />;
+  if (activeNav === 'announcements') return <AnnouncementsManagement readOnly />;
+  if (activeNav === 'chat') return <ChatManagement role="member" linkedId={member.id} />;
+  const myGiving = data.giving.filter(g => g.member_id === member.id);
+  const myAttendance = data.attendance.filter(a => a.member_id === member.id);
+  return <div className="space-y-5"><SectionHeader title={`Welcome, ${member.full_name}`} subtitle={`${member.member_number || ''} | ${member.membership_status}`} /><div className="grid-fit"><StatCard label="My Giving" value={money(sumBy(myGiving, 'amount'))} icon="hand-holding-dollar" /><StatCard label="Attendance Records" value={myAttendance.length} icon="clipboard-check" accent="blue" /><StatCard label="Open Prayer Requests" value={data.careRequests.filter(c => c.member_id === member.id && (c.request_type || 'Prayer') === 'Prayer' && c.status !== 'Closed').length} icon="hands-praying" accent="amber" /><StatCard label="My Ministry" value={ministryName(data, member.primary_ministry_id)} icon="people-group" accent="purple" /></div><MemberProfile member={member} /></div>;
+}
+function AppFooter() {
+  const { data } = React.useContext(DataContext);
+  const verse = ensureDailyVerseSettings(data.churchSettings).verse_of_day;
+  return <footer className="system-footer no-print px-4 md:px-6 py-4 text-sm"><div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2"><div className="font-bold">{data.churchSettings.church_name}</div><div className="opacity-80">{[data.churchSettings.address, data.churchSettings.contact, data.churchSettings.location].filter(Boolean).join(' | ')}</div><div className="opacity-90 max-w-xl">{verse}</div></div></footer>;
+}
+function App() {
+  return <DataProvider><AppShell /></DataProvider>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
