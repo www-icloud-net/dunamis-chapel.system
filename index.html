@@ -395,6 +395,30 @@ const TABLES = {
   presenceRows: 'church_presence_status'
 };
 const COLLECTION_KEYS = Object.keys(TABLES);
+const EMPTY_TO_NULL_FIELDS = {
+  church_ministries: ['leader_member_id', 'leader_minister_id'],
+  church_members: ['dob', 'household_id', 'primary_ministry_id', 'joined_date', 'baptism_date'],
+  church_member_ministries: ['member_id', 'ministry_id', 'joined_at'],
+  church_services: ['service_date', 'start_time', 'end_time', 'preacher_minister_id', 'expected_attendance'],
+  church_attendance: ['service_id', 'member_id', 'checked_in_at', 'recorded_by'],
+  church_visitors: ['service_id', 'invited_by_member_id', 'first_visit_date'],
+  church_care_requests: ['member_id', 'assigned_minister_id', 'requested_at', 'prayed_at', 'answered_at', 'closed_at'],
+  church_pastoral_visits: ['member_id', 'minister_id', 'visit_date', 'next_follow_up_date'],
+  church_events: ['ministry_id', 'event_date', 'start_time', 'end_time', 'budget'],
+  church_event_registrations: ['event_id', 'member_id', 'registered_at'],
+  church_volunteer_schedules: ['event_id', 'service_id', 'ministry_id', 'member_id', 'schedule_date'],
+  church_giving: ['member_id', 'fund_id', 'giving_date', 'amount', 'recorded_by_finance_id'],
+  church_pledges: ['member_id', 'fund_id', 'pledge_date', 'pledge_amount', 'amount_received', 'due_date'],
+  church_expenses: ['fund_id', 'expense_date', 'amount', 'approved_by_minister_id', 'recorded_by_finance_id'],
+  church_certificates: ['member_id', 'certificate_date', 'issued_at'],
+  church_documents: ['document_date'],
+  church_welfare_records: ['member_id', 'support_date', 'amount', 'approved_by_minister_id'],
+  church_announcements: ['publish_date'],
+  church_reminders: ['reminder_date'],
+  church_chat_messages: ['sender_id', 'receiver_id', 'created_at'],
+  church_presence_status: ['linked_entity_id', 'last_seen']
+};
+const NUMBER_FIELDS = new Set(['expected_attendance', 'budget', 'amount', 'pledge_amount', 'amount_received']);
 const SAFE_SELECT_COLUMNS = {
   credentials: 'id,role,linked_entity_type,linked_entity_id,username,force_password_change,account_active,is_system_default,created_at,updated_at'
 };
@@ -742,6 +766,10 @@ function cleanForTable(table, row) {
   const next = { ...row };
   if (table === 'church_pledges') delete next.balance;
   delete next.presence;
+  safeArray(EMPTY_TO_NULL_FIELDS[table]).forEach(field => {
+    if (next[field] === '') next[field] = NUMBER_FIELDS.has(field) ? 0 : null;
+    if (NUMBER_FIELDS.has(field) && next[field] !== null && next[field] !== undefined) next[field] = Number(next[field] || 0);
+  });
   return next;
 }
 async function fetchSupabaseData() {
