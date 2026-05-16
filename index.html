@@ -3,7 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover" />
-  <title>Church Management System</title>
+  <title>Land of Dunamis Chapel | Church Management System</title>
+  <meta name="description" content="Land of Dunamis Chapel secure church management system for members, attendance, giving, prayer care, events, certificates, and church administration." />
+  <meta name="theme-color" content="#0f766e" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Land of Dunamis Chapel" />
+  <meta property="og:title" content="Land of Dunamis Chapel | Church Management System" />
+  <meta property="og:description" content="Secure church management portal for Land of Dunamis Chapel." />
+  <meta property="og:image" content="church-share-preview.svg" />
+  <meta property="og:image:alt" content="Land of Dunamis Chapel church logo and system preview" />
+  <meta property="og:locale" content="en_US" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Land of Dunamis Chapel | Church Management System" />
+  <meta name="twitter:description" content="Secure church management portal for Land of Dunamis Chapel." />
+  <meta name="twitter:image" content="church-share-preview.svg" />
   <link id="app-favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2218%22 fill=%22%230f766e%22/%3E%3Cpath d=%22M32 12v40M22 22h20%22 stroke=%22white%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M16 52h32%22 stroke=%22%23facc15%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -408,10 +421,10 @@ const ID = {
 
 const defaultChurch = {
   id: 1,
-  church_name: 'Grace Community Church',
-  address: 'Church Office',
-  contact: '+233 000 000 000',
-  location: 'Main Campus',
+  church_name: 'Land of Dunamis Chapel',
+  address: 'QA775 Kwasi Gyenaye Ln, Koforidua',
+  contact: '+233244998183',
+  location: 'Asokore Dabi Asem',
   logo_url: '',
   theme_choice: 'teal',
   header_theme_choice: 'softWhite',
@@ -503,6 +516,34 @@ function nextSequence(rows, key, start=1) {
   }, 0);
   return Math.max(start, max + 1);
 }
+function setHeadTag(selector, attrName, value) {
+  const tag = document.head.querySelector(selector);
+  if (tag && value) tag.setAttribute(attrName, value);
+}
+function absolutePreviewUrl(url='') {
+  const raw = String(url || '').trim();
+  const safeRaw = raw && !raw.startsWith('data:') ? raw : 'church-share-preview.svg';
+  try { return new URL(safeRaw, window.location.href).href; }
+  catch (_) { return 'church-share-preview.svg'; }
+}
+function updateSocialPreviewMeta(settings={}) {
+  const churchName = settings.church_name || 'Land of Dunamis Chapel';
+  const title = `${churchName} | Church Management System`;
+  const description = `Secure church management portal for ${churchName}.`;
+  const imageUrl = absolutePreviewUrl(settings.logo_url || 'church-share-preview.svg');
+  document.title = title;
+  setHeadTag('meta[name="description"]', 'content', `${description} Manage members, attendance, giving, prayer care, events, certificates, and church administration.`);
+  setHeadTag('meta[name="theme-color"]', 'content', settings.primary_color || settings.theme_primary || '#0f766e');
+  setHeadTag('meta[property="og:site_name"]', 'content', churchName);
+  setHeadTag('meta[property="og:title"]', 'content', title);
+  setHeadTag('meta[property="og:description"]', 'content', description);
+  setHeadTag('meta[property="og:image"]', 'content', imageUrl);
+  setHeadTag('meta[property="og:image:alt"]', 'content', `${churchName} church logo and system preview`);
+  setHeadTag('meta[property="og:url"]', 'content', window.location.href);
+  setHeadTag('meta[name="twitter:title"]', 'content', title);
+  setHeadTag('meta[name="twitter:description"]', 'content', description);
+  setHeadTag('meta[name="twitter:image"]', 'content', imageUrl);
+}
 function applyTheme(settings={}) {
   const theme = THEME_OPTIONS[settings.theme_choice] || THEME_OPTIONS.teal;
   const headerTheme = HEADER_THEME_OPTIONS[settings.header_theme_choice] || HEADER_THEME_OPTIONS.softWhite;
@@ -522,7 +563,7 @@ function applyTheme(settings={}) {
   root.style.setProperty('--theme-border', headerTheme.border || 'rgba(15,23,42,.09)');
   const font = FONT_OPTIONS[settings.font_choice] || FONT_OPTIONS.inter;
   root.style.setProperty('--theme-font-family', font.family);
-  document.title = settings.church_name || 'Church Management System';
+  updateSocialPreviewMeta(settings);
   const favicon = document.getElementById('app-favicon');
   if (favicon && settings.logo_url) favicon.href = settings.logo_url;
 }
