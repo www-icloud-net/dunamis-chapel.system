@@ -87,9 +87,10 @@
 const SUPABASE_URL = 'https://nzhcngwyttwrndvaxhvl.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_L23gyL2aX60oD48Ktbm1OA_O-BsL8LY';
 const hasSupabaseCreds = !SUPABASE_URL.includes('YOUR_') && !SUPABASE_ANON_KEY.includes('YOUR_');
+const SUPABASE_JS = window.supabase;
 function createSupabaseClient(sessionToken='') {
-  if (!hasSupabaseCreds || !window.supabase) return null;
-  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  if (!hasSupabaseCreds || !SUPABASE_JS?.createClient) return null;
+  return SUPABASE_JS.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: {
       headers: sessionToken ? { 'x-cms-session-token': sessionToken } : {}
     },
@@ -101,11 +102,11 @@ function createSupabaseClient(sessionToken='') {
   });
 }
 let activeSessionToken = '';
-let supabase = createSupabaseClient();
-const publicSupabase = createSupabaseClient();
+let supabaseClient = createSupabaseClient();
+const publicSupabaseClient = createSupabaseClient();
 function setSupabaseSessionToken(token='') {
   activeSessionToken = String(token || '');
-  supabase = createSupabaseClient(activeSessionToken);
+  supabaseClient = createSupabaseClient(activeSessionToken);
 }
 function hasActiveSessionToken() {
   return Boolean(activeSessionToken);
@@ -430,12 +431,12 @@ function validateImageFile(file) {
 async function uploadImageToStorage(file, folder='general') {
   validateImageFile(file);
   const cleanFolder = cleanPathName(folder);
-  if (!supabase?.storage || cleanFolder === 'certificate-signatures') return fileToDataUrl(file);
+  if (!supabaseClient?.storage || cleanFolder === 'certificate-signatures') return fileToDataUrl(file);
   const ext = (file.name.split('.').pop() || 'png').toLowerCase();
   const path = `${cleanFolder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { error: uploadError } = await supabase.storage.from('church-media').upload(path, file, { upsert: false, cacheControl: '3600' });
+  const { error: uploadError } = await supabaseClient.storage.from('church-media').upload(path, file, { upsert: false, cacheControl: '3600' });
   if (uploadError) throw uploadError;
-  const { data } = supabase.storage.from('church-media').getPublicUrl(path);
+  const { data } = supabaseClient.storage.from('church-media').getPublicUrl(path);
   if (!data?.publicUrl) throw new Error('Image uploaded, but no public URL was returned.');
   return data.publicUrl;
 }
@@ -446,12 +447,12 @@ function validateGeneralFile(file) {
 async function uploadFileToStorage(file, folder='documents') {
   validateGeneralFile(file);
   const cleanFolder = cleanPathName(folder);
-  if (!supabase?.storage || cleanFolder === 'church-documents' || cleanFolder === 'documents') return fileToDataUrl(file);
+  if (!supabaseClient?.storage || cleanFolder === 'church-documents' || cleanFolder === 'documents') return fileToDataUrl(file);
   const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
   const path = `${cleanFolder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { error: uploadError } = await supabase.storage.from('church-media').upload(path, file, { upsert: false, cacheControl: '3600' });
+  const { error: uploadError } = await supabaseClient.storage.from('church-media').upload(path, file, { upsert: false, cacheControl: '3600' });
   if (uploadError) throw uploadError;
-  const { data } = supabase.storage.from('church-media').getPublicUrl(path);
+  const { data } = supabaseClient.storage.from('church-media').getPublicUrl(path);
   if (!data?.publicUrl) throw new Error('File uploaded, but no public URL was returned.');
   return data.publicUrl;
 }
@@ -589,27 +590,27 @@ function cleanForTable(table, row) {
   return next;
 }
 async function fetchSupabaseData() {
-  if (!supabase) throw new Error('Supabase is not configured.');
-  const { data: settings, error: settingsError } = await supabase.from('church_settings').select('*').eq('id', 1).maybeSingle();
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data: settings, error: settingsError } = await supabaseClient.from('church_settings').select('*').eq('id', 1).maybeSingle();
   if (settingsError) throw settingsError;
   const loaded = { churchSettings: settings || defaultChurch };
   if (!hasActiveSessionToken()) return normalizeData(loaded);
   for (const [key, table] of Object.entries(TABLES)) {
     const selectColumns = SAFE_SELECT_COLUMNS[key] || '*';
-    const { data, error } = await supabase.from(table).select(selectColumns);
+    const { data, error } = await supabaseClient.from(table).select(selectColumns);
     if (error) throw error;
     loaded[key] = data || [];
   }
   return normalizeData(loaded);
 }
 async function syncSimpleTable(table, prevItems=[], nextItems=[]) {
-  if (!supabase) return;
+  if (!supabaseClient) return;
   if (table === TABLES.credentials) throw new Error('Credentials must be changed from the secure Accounts screen.');
   const prevIds = new Set(safeArray(prevItems).map(x => x.id).filter(Boolean));
   const nextIds = new Set(safeArray(nextItems).map(x => x.id).filter(Boolean));
   const deletedIds = [...prevIds].filter(id => !nextIds.has(id));
   if (deletedIds.length) {
-    const { error } = await supabase.from(table).delete().in('id', deletedIds);
+    const { error } = await supabaseClient.from(table).delete().in('id', deletedIds);
     if (error) throw error;
   }
   const prevById = new Map(safeArray(prevItems).map(row => [row.id, cleanForTable(table, row)]));
@@ -617,13 +618,13 @@ async function syncSimpleTable(table, prevItems=[], nextItems=[]) {
     .map(row => cleanForTable(table, row))
     .filter(row => !row.id || JSON.stringify(prevById.get(row.id) || null) !== JSON.stringify(row));
   if (rows.length) {
-    const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
+    const { error } = await supabaseClient.from(table).upsert(rows, { onConflict: 'id' });
     if (error) throw error;
   }
 }
 async function syncSettings(settings) {
-  if (!supabase) return;
-  const { error } = await supabase.from('church_settings').upsert({ ...ensureDailyVerseSettings(settings), id: 1 }, { onConflict: 'id' });
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.from('church_settings').upsert({ ...ensureDailyVerseSettings(settings), id: 1 }, { onConflict: 'id' });
   if (error) throw error;
 }
 async function syncAll(data) {
@@ -648,7 +649,7 @@ function DataProvider({ children }) {
   const [loaded, setLoaded] = React.useState(false);
   const [busyText, setBusyText] = React.useState('');
   const [notifications, setNotifications] = React.useState([]);
-  const [offlineState, setOfflineState] = React.useState({ mode: supabase ? 'syncing' : 'offline', pendingCount: 0, lastSyncAt: '', lastError: '' });
+  const [offlineState, setOfflineState] = React.useState({ mode: supabaseClient ? 'syncing' : 'offline', pendingCount: 0, lastSyncAt: '', lastError: '' });
 
   const notify = React.useCallback((type, message) => {
     const id = uid();
@@ -702,7 +703,7 @@ function DataProvider({ children }) {
     if (!options.suppressBusy) setBusyText(options.busyText || 'Saving record...');
     try {
       await syncSimpleTable(TABLES[key], prevItems, nextItems);
-      setOfflineState(state => ({ ...state, mode: supabase ? 'online' : 'offline', lastSyncAt: supabase ? nowIso() : state.lastSyncAt, lastError: '' }));
+      setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
       if (!options.silentSuccess) notify('success', options.successMessage || 'Record saved successfully.');
     } catch (error) {
       setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: state.pendingCount + 1, lastError: error?.message || 'Sync failed.' }));
@@ -720,7 +721,7 @@ function DataProvider({ children }) {
     setBusyText('Saving church settings...');
     try {
       await syncSettings(nextData.churchSettings);
-      setOfflineState(state => ({ ...state, mode: supabase ? 'online' : 'offline', lastSyncAt: supabase ? nowIso() : state.lastSyncAt, lastError: '' }));
+      setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
       notify('success', 'Church settings saved successfully.');
     } catch (error) {
       setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: state.pendingCount + 1, lastError: error?.message || 'Sync failed.' }));
@@ -734,7 +735,7 @@ function DataProvider({ children }) {
     setBusyText('Syncing pending church records...');
     try {
       await syncAll(data);
-      setOfflineState(state => ({ ...state, mode: supabase ? 'online' : 'offline', pendingCount: 0, lastSyncAt: supabase ? nowIso() : state.lastSyncAt, lastError: '' }));
+      setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', pendingCount: 0, lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
       notify('success', 'Pending records synced successfully.');
     } catch (error) {
       setOfflineState(state => ({ ...state, mode: 'offline', lastError: error?.message || 'Sync failed.' }));
@@ -1644,14 +1645,14 @@ function CredentialsManagement() {
   const save = async event => {
     event.preventDefault();
     try {
-      if (!supabase) throw new Error('Supabase is not configured.');
+      if (!supabaseClient) throw new Error('Supabase is not configured.');
       if (!form.id && String(form.password || '').length < 8) throw new Error('New accounts need a password of at least 8 characters.');
       if (form.id && form.password && String(form.password).length < 8) throw new Error('New password must be at least 8 characters.');
       const role = form.role || 'member';
       const entityType = linkedType(role);
       const linkedName = entityType === 'minister' ? ministerName(data, form.linked_entity_id) : entityType === 'finance_officer' ? nameBy(data.financeOfficers, form.linked_entity_id, 'full_name') : memberName(data, form.linked_entity_id);
       const username = (form.username || `${String(linkedName || role).toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '')}.${role.slice(0,3)}${Math.floor(Math.random()*900+100)}`).trim().toLowerCase();
-      const { error } = await supabase.rpc('church_admin_save_credential', {
+      const { error } = await supabaseClient.rpc('church_admin_save_credential', {
         p_id: form.id || null,
         p_role: role,
         p_linked_entity_type: entityType || null,
@@ -1673,7 +1674,7 @@ function CredentialsManagement() {
   const remove = async row => {
     if (!window.confirm(`Delete account ${row.username}?`)) return;
     try {
-      const { error } = await supabase.rpc('church_admin_delete_credential', { p_id: row.id });
+      const { error } = await supabaseClient.rpc('church_admin_delete_credential', { p_id: row.id });
       if (error) throw error;
       await reloadData({ silent: true });
       notify('success', 'Account deleted securely.');
@@ -1864,7 +1865,7 @@ function AppShell() {
   }, [store.loaded]);
   const loginWithCredentials = async (username, password) => {
     const lower = String(username || '').trim().toLowerCase();
-    const client = publicSupabase || supabase;
+    const client = publicSupabaseClient || supabaseClient;
     if (!client) throw new Error('Supabase is not configured.');
     const { data: result, error } = await client.rpc('church_login', { p_username: lower, p_password: String(password || '') });
     if (error) throw new Error(store.data.churchSettings.failed_login_greeting_message || 'Login failed.');
@@ -1895,7 +1896,7 @@ function AppShell() {
   const logout = async () => {
     if (session.role) await store.setPresenceStatus(session.role, session.linkedId, false);
     try {
-      if (hasActiveSessionToken() && supabase) await supabase.rpc('church_logout');
+      if (hasActiveSessionToken() && supabaseClient) await supabaseClient.rpc('church_logout');
     } catch (error) {}
     setSupabaseSessionToken('');
     setSession({ role: null, linkedId: null, credentialId: null, username: '' });
@@ -1904,8 +1905,8 @@ function AppShell() {
     store.reloadData({ silent: true });
   };
   const changeOwnPassword = async (currentPassword, newPassword) => {
-    if (!supabase) throw new Error('Supabase is not configured.');
-    const { error } = await supabase.rpc('church_change_password', { p_current_password: currentPassword, p_new_password: newPassword });
+    if (!supabaseClient) throw new Error('Supabase is not configured.');
+    const { error } = await supabaseClient.rpc('church_change_password', { p_current_password: currentPassword, p_new_password: newPassword });
     if (error) throw error;
     store.notify('success', 'Password changed successfully.');
     await store.reloadData({ silent: true });
