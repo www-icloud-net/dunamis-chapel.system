@@ -450,6 +450,35 @@ function canSyncCollectionKey(key) {
   if (key === 'credentials') return false;
   return safeArray(ROLE_SYNC_COLLECTIONS[activeSessionRole]).includes(key);
 }
+
+const EPHEMERAL_COLLECTION_KEYS = new Set(['presenceRows']);
+function isEphemeralCollectionKey(key='') {
+  return EPHEMERAL_COLLECTION_KEYS.has(key);
+}
+function isPresenceTable(table='') {
+  return table === TABLES.presenceRows || table === 'church_presence_status';
+}
+function shouldKeepPendingChange(change={}) {
+  return !(change?.key === 'presenceRows' || isPresenceTable(change?.table));
+}
+function normalizePresenceRows(rows=[]) {
+  const byKey = new Map();
+  safeArray(rows).forEach(row => {
+    if (!row?.role) return;
+    const entityId = presenceEntityId(row.linked_entity_id);
+    const key = presenceKey(row.role, entityId);
+    const previous = byKey.get(key);
+    const candidate = { ...row, linked_entity_id: entityId };
+    if (!previous) {
+      byKey.set(key, candidate);
+      return;
+    }
+    const previousTime = previous.last_seen ? new Date(previous.last_seen).getTime() : 0;
+    const candidateTime = candidate.last_seen ? new Date(candidate.last_seen).getTime() : 0;
+    if ((candidateTime || 0) >= (previousTime || 0)) byKey.set(key, { ...previous, ...candidate });
+  });
+  return Array.from(byKey.values());
+}
 const ID = {
   minister1: '00000000-0000-4000-8000-000000000101',
   minister2: '00000000-0000-4000-8000-000000000102',
@@ -945,7 +974,10 @@ function cleanForTable(table, row) {
   const next = { ...row };
   if (table === 'church_pledges') delete next.balance;
   delete next.presence;
-  if (table === 'church_presence_status' && !next.linked_entity_id) next.linked_entity_id = PRESENCE_SYSTEM_ID;
+  if (isPresenceTable(table)) {
+    next.linked_entity_id = presenceEntityId(next.linked_entity_id);
+    delete next.id;
+  }
   safeArray(EMPTY_TO_NULL_FIELDS[table]).forEach(field => {
     if (next[field] === '') next[field] = NUMBER_FIELDS.has(field) ? 0 : null;
     if (NUMBER_FIELDS.has(field) && next[field] !== null && next[field] !== undefined) next[field] = Number(next[field] || 0);
@@ -953,6 +985,12 @@ function cleanForTable(table, row) {
   return next;
 }
 function buildSyncDelta(table, prevItems=[], nextItems=[]) {
+  if (isPresenceTable(table)) {
+    return {
+      deletedIds: [],
+      rows: normalizePresenceRows(nextItems).map(row => cleanForTable(table, row)).filter(row => row.role)
+    };
+  }
   const prevIds = new Set(safeArray(prevItems).map(x => x.id).filter(Boolean));
   const nextIds = new Set(safeArray(nextItems).map(x => x.id).filter(Boolean));
   const deletedIds = [...prevIds].filter(id => !nextIds.has(id));
@@ -974,14 +1012,32 @@ async function deleteRowsInChunks(table, ids=[]) {
   }
 }
 async function upsertRowsInChunks(table, rows=[], options={}) {
-  for (const batch of chunkArray(rows)) {
-    const { error } = await supabaseClient.from(table).upsert(batch, options);
+  const cleanedRows = isPresenceTable(table)
+    ? normalizePresenceRows(rows).map(row => cleanForTable(table, row)).filter(row => row.role)
+    : safeArray(rows);
+  const upsertOptions = isPresenceTable(table) ? { onConflict: 'role,linked_entity_id' } : options;
+  for (const batch of chunkArray(cleanedRows)) {
+    const { error } = await supabaseClient.from(table).upsert(batch, upsertOptions);
     if (error) throw error;
   }
 }
 async function applySyncDelta(table, delta={}) {
+  if (isPresenceTable(table)) {
+    if (safeArray(delta.rows).length) await upsertRowsInChunks(table, delta.rows, { onConflict: 'role,linked_entity_id' });
+    return;
+  }
   if (safeArray(delta.deletedIds).length) await deleteRowsInChunks(table, delta.deletedIds);
   if (safeArray(delta.rows).length) await upsertRowsInChunks(table, delta.rows, { onConflict: 'id' });
+}
+async function savePresenceStatusRemote(role, linkedId, isOnline) {
+  if (!supabaseClient || !hasActiveSessionToken() || !role) return false;
+  const { error } = await supabaseClient.rpc('church_set_presence', {
+    p_role: role,
+    p_linked_entity_id: presenceEntityId(linkedId),
+    p_is_online: !!isOnline
+  });
+  if (error) throw error;
+  return true;
 }
 async function fetchAllSupabaseRows(table, selectColumns='*', pageSize=1000) {
   const rows = [];
@@ -1026,7 +1082,7 @@ async function syncSettings(settings) {
 async function syncAll(data) {
   if (canSyncChurchSettings()) await syncSettings(data.churchSettings);
   for (const key of COLLECTION_KEYS) {
-    if (key === 'credentials') continue;
+    if (key === 'credentials' || isEphemeralCollectionKey(key)) continue;
     if (!canSyncCollectionKey(key)) continue;
     await syncSimpleTable(TABLES[key], [], data[key]);
   }
@@ -1035,14 +1091,14 @@ async function persistOffline(data) {
   await offlineStore.setItem(DATA_KEY, clone(data));
 }
 async function loadPendingChanges() {
-  return safeArray(await offlineStore.getItem(PENDING_CHANGES_KEY));
+  return safeArray(await offlineStore.getItem(PENDING_CHANGES_KEY)).filter(shouldKeepPendingChange);
 }
 async function savePendingChanges(changes=[]) {
-  await offlineStore.setItem(PENDING_CHANGES_KEY, safeArray(changes));
+  await offlineStore.setItem(PENDING_CHANGES_KEY, safeArray(changes).filter(shouldKeepPendingChange));
 }
 async function appendPendingCollectionChange(key, prevItems=[], nextItems=[]) {
   const table = TABLES[key];
-  if (!table) return [];
+  if (!table || isEphemeralCollectionKey(key)) return loadPendingChanges();
   const delta = buildSyncDelta(table, prevItems, nextItems);
   if (!safeArray(delta.deletedIds).length && !safeArray(delta.rows).length) return loadPendingChanges();
   const current = await loadPendingChanges();
@@ -1132,9 +1188,9 @@ function DataProvider({ children }) {
       setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
       if (!options.silentSuccess) notify('success', options.successMessage || 'Record saved successfully.');
     } catch (error) {
-      const pending = await appendPendingCollectionChange(key, prevItems, nextItems);
+      const pending = options.skipPending ? await loadPendingChanges() : await appendPendingCollectionChange(key, prevItems, nextItems);
       setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: pending.length, lastError: error?.message || 'Sync failed.' }));
-      notify('info', options.offlineMessage || 'Saved locally. Sync is pending.');
+      if (!options.silentFailure) notify('info', options.offlineMessage || 'Saved locally. Sync is pending.');
     } finally {
       setBusyText('');
     }
@@ -1224,12 +1280,22 @@ function DataProvider({ children }) {
   const setPresenceStatus = React.useCallback(async (role, linkedId, isOnline) => {
     if (!role) return;
     const entityId = presenceEntityId(linkedId);
-    await updateCollection('presenceRows', rows => {
-      const idx = safeArray(rows).findIndex(row => row.role === role && presenceEntityId(row.linked_entity_id) === entityId);
-      const payload = { id: idx >= 0 ? rows[idx].id : uid(), role, linked_entity_id: entityId, is_online: !!isOnline, last_seen: nowIso() };
-      return idx >= 0 ? rows.map((row, i) => i === idx ? { ...row, ...payload } : row) : [payload, ...rows];
-    }, { silentSuccess: true, suppressBusy: true });
-  }, [updateCollection]);
+    const payload = { role, linked_entity_id: entityId, is_online: !!isOnline, last_seen: nowIso() };
+    setData(prev => {
+      const rows = normalizePresenceRows(prev.presenceRows);
+      const idx = rows.findIndex(row => row.role === role && presenceEntityId(row.linked_entity_id) === entityId);
+      const nextRows = idx >= 0 ? rows.map((row, i) => i === idx ? { ...row, ...payload } : row) : [payload, ...rows];
+      const nextData = normalizeData({ ...prev, presenceRows: nextRows });
+      persistOffline(nextData).catch(() => {});
+      return nextData;
+    });
+    try {
+      await savePresenceStatusRemote(role, entityId, isOnline);
+      setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : state.mode, lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
+    } catch (error) {
+      setOfflineState(state => ({ ...state, lastError: state.lastError || '' }));
+    }
+  }, []);
 
   const value = { data, loaded, updateCollection, setChurchSettings, reloadData, notify, notifications, dismissNotification, busyText, offlineState, flushPendingChanges, setPresenceStatus };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
@@ -2477,7 +2543,7 @@ function AppShell() {
           setSession({ role: null, linkedId: null, credentialId: null, username: '' });
           return;
         }
-        store.setPresenceStatus(saved.role, saved.linkedId, true);
+        store.setPresenceStatus(saved.role, saved.linkedId, true).catch(() => {});
       }).catch(() => {});
     } catch (e) {}
   }, [store.loaded]);
