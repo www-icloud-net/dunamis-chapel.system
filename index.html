@@ -22,6 +22,17 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <script>
+    (() => {
+      const originalWarn = console.warn.bind(console);
+      console.warn = (...args) => {
+        const message = args.map(value => String(value || '')).join(' ');
+        if (message.includes('cdn.tailwindcss.com should not be used in production')) return;
+        if (message.includes('in-browser Babel transformer')) return;
+        originalWarn(...args);
+      };
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -189,6 +200,7 @@ let activeSessionToken = '';
 let activeSessionRole = '';
 let supabaseClient = createSupabaseClient();
 const publicSupabaseClient = createSupabaseClient();
+const APP_VERSION = '2026.05.16.advanced';
 function setSupabaseSessionToken(token='') {
   activeSessionToken = String(token || '');
   supabaseClient = createSupabaseClient(activeSessionToken);
@@ -402,9 +414,17 @@ const TABLES = {
   reminders: 'church_reminders',
   credentials: 'church_user_credentials',
   chats: 'church_chat_messages',
-  presenceRows: 'church_presence_status'
+  presenceRows: 'church_presence_status',
+  auditLogs: 'church_audit_logs',
+  backupRecords: 'church_backup_records'
 };
 const COLLECTION_KEYS = Object.keys(TABLES);
+const COLLECTION_LABELS = {
+  ministers: 'Ministers', financeOfficers: 'Finance Officers', households: 'Households', ministries: 'Ministries', members: 'Members', memberMinistries: 'Ministry Assignments', services: 'Services', attendance: 'Attendance', visitors: 'Visitors', careRequests: 'Prayer and Care Requests', pastoralVisits: 'Pastoral Visits', events: 'Events', eventRegistrations: 'Event Registrations', volunteerSchedules: 'Volunteer Schedules', funds: 'Funds', giving: 'Giving', pledges: 'Pledges', expenses: 'Expenses', certificates: 'Certificates', documents: 'Documents', welfareRecords: 'Welfare Records', announcements: 'Announcements', reminders: 'Reminders', credentials: 'Accounts', chats: 'Chat Messages', presenceRows: 'Presence Status', auditLogs: 'Activity Log', backupRecords: 'Backup History'
+};
+const OPTIONAL_BACKEND_COLLECTION_KEYS = new Set(['auditLogs', 'backupRecords']);
+const BACKUP_COLLECTION_KEYS = COLLECTION_KEYS.filter(key => !['presenceRows'].includes(key));
+const RESTORE_COLLECTION_KEYS = COLLECTION_KEYS.filter(key => !['credentials', 'presenceRows', 'auditLogs', 'backupRecords'].includes(key));
 const DEFAULT_TABLE_PAGE_SIZE = 25;
 const MAX_TABLE_PAGE_SIZE = 100;
 const SYNC_BATCH_SIZE = 450;
@@ -431,7 +451,9 @@ const EMPTY_TO_NULL_FIELDS = {
   church_announcements: ['publish_date'],
   church_reminders: ['reminder_date'],
   church_chat_messages: ['sender_id', 'receiver_id', 'created_at'],
-  church_presence_status: ['linked_entity_id', 'last_seen']
+  church_presence_status: ['linked_entity_id', 'last_seen'],
+  church_audit_logs: ['actor_linked_entity_id', 'created_at'],
+  church_backup_records: ['created_at', 'restored_at']
 };
 const NUMBER_FIELDS = new Set(['expected_attendance', 'budget', 'amount', 'pledge_amount', 'amount_received']);
 const SAFE_SELECT_COLUMNS = {
@@ -954,7 +976,9 @@ function defaultData() {
       { id: '00000000-0000-4000-8000-000000000906', role: 'member', linked_entity_type: 'member', linked_entity_id: ID.member1, username: 'member', force_password_change: true, account_active: true, is_system_default: true }
     ],
     chats: [],
-    presenceRows: []
+    presenceRows: [],
+    auditLogs: [],
+    backupRecords: []
   });
 }
 function normalizeData(raw={}) {
@@ -1063,7 +1087,15 @@ async function fetchSupabaseData() {
   if (!hasActiveSessionToken()) return normalizeData(loaded);
   await Promise.all(Object.entries(TABLES).map(async ([key, table]) => {
     const selectColumns = SAFE_SELECT_COLUMNS[key] || '*';
-    loaded[key] = await fetchAllSupabaseRows(table, selectColumns);
+    try {
+      loaded[key] = await fetchAllSupabaseRows(table, selectColumns);
+    } catch (error) {
+      if (OPTIONAL_BACKEND_COLLECTION_KEYS.has(key)) {
+        loaded[key] = [];
+        return;
+      }
+      throw error;
+    }
   }));
   return normalizeData(loaded);
 }
@@ -1095,6 +1127,102 @@ async function loadPendingChanges() {
 }
 async function savePendingChanges(changes=[]) {
   await offlineStore.setItem(PENDING_CHANGES_KEY, safeArray(changes).filter(shouldKeepPendingChange));
+}
+
+function currentSessionSnapshot() {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null') || {}; }
+  catch (_) { return {}; }
+}
+function actorDisplayName(data, session={}) {
+  const role = session.role || activeSessionRole || '';
+  const linkedId = session.linkedId || session.linked_entity_id || '';
+  const username = session.username || '';
+  const linkedName = role ? linkedUserName(data, role, linkedId) : '';
+  return [linkedName, username ? `@${username}` : ''].filter(Boolean).join(' ');
+}
+function describeRecordForAudit(key, row={}) {
+  if (!row) return '';
+  if (row.full_name) return row.full_name;
+  if (row.name) return row.name;
+  if (row.title) return row.title;
+  if (row.service_name) return row.service_name;
+  if (row.member_number) return row.member_number;
+  if (row.receipt_no) return row.receipt_no;
+  if (row.certificate_number) return row.certificate_number;
+  if (row.username) return row.username;
+  return row.id || COLLECTION_LABELS[key] || key;
+}
+function summarizeCollectionChange(key, prevItems=[], nextItems=[]) {
+  const prevById = new Map(safeArray(prevItems).filter(row => row?.id).map(row => [row.id, row]));
+  const nextById = new Map(safeArray(nextItems).filter(row => row?.id).map(row => [row.id, row]));
+  const created = [...nextById.keys()].filter(id => !prevById.has(id));
+  const deleted = [...prevById.keys()].filter(id => !nextById.has(id));
+  const updated = [...nextById.keys()].filter(id => prevById.has(id) && stableRecordSignature(prevById.get(id)) !== stableRecordSignature(nextById.get(id)));
+  let action = 'update';
+  if (created.length && !updated.length && !deleted.length) action = 'create';
+  else if (deleted.length && !created.length && !updated.length) action = 'delete';
+  else if (created.length || deleted.length || updated.length) action = 'bulk_update';
+  else action = 'view';
+  const targetId = created[0] || updated[0] || deleted[0] || '';
+  const targetRow = nextById.get(targetId) || prevById.get(targetId) || {};
+  const countParts = [];
+  if (created.length) countParts.push(`${created.length} added`);
+  if (updated.length) countParts.push(`${updated.length} updated`);
+  if (deleted.length) countParts.push(`${deleted.length} deleted`);
+  return {
+    action,
+    record_id: targetId || '',
+    record_label: describeRecordForAudit(key, targetRow),
+    summary: countParts.length ? `${COLLECTION_LABELS[key] || key}: ${countParts.join(', ')}` : `${COLLECTION_LABELS[key] || key}: no change`,
+    details: { collection_key: key, created_count: created.length, updated_count: updated.length, deleted_count: deleted.length }
+  };
+}
+function buildBackupPayload(data={}, keys=RESTORE_COLLECTION_KEYS, session={}) {
+  const selectedKeys = safeArray(keys).filter(key => BACKUP_COLLECTION_KEYS.includes(key));
+  const collections = {};
+  selectedKeys.forEach(key => { collections[key] = clone(safeArray(data[key])); });
+  const recordCounts = Object.fromEntries(selectedKeys.map(key => [key, safeArray(collections[key]).length]));
+  return {
+    format: 'land-of-dunamis-cms-backup',
+    version: APP_VERSION,
+    created_at: nowIso(),
+    created_by_username: session.username || '',
+    created_by_role: session.role || activeSessionRole || '',
+    church_name: data.churchSettings?.church_name || defaultChurch.church_name,
+    churchSettings: clone(data.churchSettings || defaultChurch),
+    collection_keys: selectedKeys,
+    record_counts: recordCounts,
+    collections
+  };
+}
+function normalizeBackupPayload(payload={}) {
+  const collections = payload.collections || payload.data || {};
+  const keys = safeArray(payload.collection_keys).length ? payload.collection_keys : Object.keys(collections || {});
+  return {
+    ...payload,
+    churchSettings: payload.churchSettings || payload.church_settings || null,
+    collections,
+    collection_keys: keys.filter(key => RESTORE_COLLECTION_KEYS.includes(key))
+  };
+}
+function downloadJson(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+function readJsonFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = event => {
+      try { resolve(JSON.parse(event.target.result)); }
+      catch (error) { reject(new Error('Selected file is not a valid JSON backup.')); }
+    };
+    reader.onerror = () => reject(new Error('Backup file could not be read.'));
+    reader.readAsText(file);
+  });
 }
 async function appendPendingCollectionChange(key, prevItems=[], nextItems=[]) {
   const table = TABLES[key];
@@ -1192,6 +1320,33 @@ function DataProvider({ children }) {
       setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: pending.length, lastError: error?.message || 'Sync failed.' }));
       if (!options.silentFailure) notify('info', options.offlineMessage || 'Saved locally. Sync is pending.');
     } finally {
+      if (!options.skipAudit && !['presenceRows', 'auditLogs'].includes(key)) {
+        const audit = summarizeCollectionChange(key, prevItems, nextItems);
+        if (audit.action !== 'view') {
+          const session = currentSessionSnapshot();
+          const payload = {
+            id: uid(),
+            action: audit.action,
+            area: COLLECTION_LABELS[key] || key,
+            record_table: TABLES[key] || key,
+            record_id: audit.record_id || '',
+            record_label: audit.record_label || '',
+            actor_role: session.role || activeSessionRole || null,
+            actor_username: session.username || '',
+            actor_linked_entity_id: session.linkedId || null,
+            actor_name: actorDisplayName(nextData, session),
+            details: audit.details,
+            created_at: nowIso()
+          };
+          setData(prev => {
+            const mergedRows = [payload, ...safeArray(prev.auditLogs)].slice(0, 1000);
+            const mergedData = normalizeData({ ...prev, auditLogs: mergedRows });
+            persistOffline(mergedData).catch(() => {});
+            return mergedData;
+          });
+          try { if (supabaseClient && hasActiveSessionToken() && canSyncCollectionKey('auditLogs')) await upsertRowsInChunks(TABLES.auditLogs, [payload], { onConflict: 'id' }); } catch (_) {}
+        }
+      }
       setBusyText('');
     }
   }, [data, notify]);
@@ -1297,7 +1452,93 @@ function DataProvider({ children }) {
     }
   }, []);
 
-  const value = { data, loaded, updateCollection, setChurchSettings, reloadData, notify, notifications, dismissNotification, busyText, offlineState, flushPendingChanges, setPresenceStatus };
+  const logActivity = React.useCallback(async (entry={}) => {
+    const session = currentSessionSnapshot();
+    const payload = {
+      id: entry.id || uid(),
+      action: entry.action || 'update',
+      area: entry.area || entry.collection_key || '',
+      record_table: entry.record_table || '',
+      record_id: entry.record_id || '',
+      record_label: entry.record_label || '',
+      actor_role: session.role || activeSessionRole || null,
+      actor_username: session.username || '',
+      actor_linked_entity_id: session.linkedId || null,
+      actor_name: actorDisplayName(data, session),
+      details: entry.details || {},
+      created_at: entry.created_at || nowIso()
+    };
+    setData(prev => {
+      const nextData = normalizeData({ ...prev, auditLogs: [payload, ...safeArray(prev.auditLogs)].slice(0, 1000) });
+      persistOffline(nextData).catch(() => {});
+      return nextData;
+    });
+    try {
+      if (supabaseClient && hasActiveSessionToken() && canSyncCollectionKey('auditLogs')) await upsertRowsInChunks(TABLES.auditLogs, [payload], { onConflict: 'id' });
+    } catch (_) {}
+  }, [data]);
+
+  const createBackupRecord = React.useCallback(async ({ backupName='', selectedKeys=RESTORE_COLLECTION_KEYS, backupType='manual', download=true } = {}) => {
+    const session = currentSessionSnapshot();
+    const selected = safeArray(selectedKeys).filter(key => BACKUP_COLLECTION_KEYS.includes(key));
+    const payload = buildBackupPayload(data, selected, session);
+    const name = String(backupName || `${data.churchSettings.church_name || 'church'} backup ${new Date().toLocaleString()}`).trim();
+    const record = {
+      id: uid(),
+      backup_name: name,
+      backup_type: backupType,
+      collection_keys: selected,
+      record_counts: payload.record_counts,
+      backup_json: payload,
+      created_by_role: session.role || activeSessionRole || null,
+      created_by_username: session.username || '',
+      created_at: nowIso(),
+      restored_at: '',
+      restore_count: 0,
+      notes: ''
+    };
+    await updateCollection('backupRecords', rows => [record, ...safeArray(rows)].slice(0, 80), { successMessage: 'Backup saved successfully.', silentFailure: true });
+    await logActivity({ action: 'backup_create', area: 'Backup Center', record_table: TABLES.backupRecords, record_id: record.id, record_label: name, details: { collection_keys: selected, record_counts: payload.record_counts } });
+    if (download) downloadJson(`${cleanPathName(name)}-${today()}.json`, payload);
+    return payload;
+  }, [data, updateCollection, logActivity]);
+
+  const restoreFromBackup = React.useCallback(async (payload={}, options={}) => {
+    const normalized = normalizeBackupPayload(payload);
+    const selected = safeArray(options.selectedKeys || normalized.collection_keys).filter(key => RESTORE_COLLECTION_KEYS.includes(key) && normalized.collections?.[key]);
+    if (!selected.length && !options.restoreSettings) throw new Error('No restorable records were found in this backup.');
+    const restoreSettings = options.restoreSettings === true && normalized.churchSettings;
+    const prevData = data;
+    const nextRaw = { ...prevData };
+    if (restoreSettings) nextRaw.churchSettings = ensureDailyVerseSettings({ ...defaultChurch, ...normalized.churchSettings, id: 1 });
+    selected.forEach(key => { nextRaw[key] = safeArray(normalized.collections[key]); });
+    const nextData = normalizeData(nextRaw);
+    setBusyText('Restoring church records...');
+    setData(nextData);
+    await persistOffline(nextData);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Internet connection lost. Using offline mode.');
+      if (restoreSettings) await syncSettings(nextData.churchSettings);
+      for (const key of selected) {
+        if (!canSyncCollectionKey(key)) continue;
+        await syncSimpleTable(TABLES[key], safeArray(prevData[key]), safeArray(nextData[key]));
+      }
+      setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
+      notify('success', 'Backup restored successfully.');
+    } catch (error) {
+      let pending = await loadPendingChanges();
+      if (restoreSettings) pending = await appendPendingSettingsChange(nextData.churchSettings);
+      for (const key of selected) pending = await appendPendingCollectionChange(key, safeArray(prevData[key]), safeArray(nextData[key]));
+      setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: pending.length, lastError: error?.message || 'Restore sync is pending.' }));
+      notify('info', 'Backup restored locally. Sync is pending.');
+    } finally {
+      setBusyText('');
+    }
+    await logActivity({ action: 'backup_restore', area: 'Backup Center', record_label: normalized.church_name || 'System backup', details: { collection_keys: selected, restore_settings: !!restoreSettings } });
+    return true;
+  }, [data, notify, logActivity]);
+
+  const value = { data, loaded, updateCollection, setChurchSettings, reloadData, notify, notifications, dismissNotification, busyText, offlineState, flushPendingChanges, setPresenceStatus, logActivity, createBackupRecord, restoreFromBackup };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }
 
@@ -2166,36 +2407,200 @@ function ManualRemindersManagement() {
     { name: 'notes', label: 'Notes', type: 'textarea' }
   ]} />;
 }
+function dateInRange(value='', start='', end='') {
+  const key = String(value || '').slice(0, 10);
+  if (!key) return false;
+  if (start && key < start) return false;
+  if (end && key > end) return false;
+  return true;
+}
+function monthKey(value='') { return String(value || '').slice(0, 7) || 'Unspecified'; }
+function groupSum(rows=[], groupFn, valueFn=() => 1) {
+  const map = new Map();
+  safeArray(rows).forEach(row => {
+    const key = groupFn(row) || 'Unspecified';
+    map.set(key, (map.get(key) || 0) + Number(valueFn(row) || 0));
+  });
+  return Array.from(map.entries()).map(([name, value]) => ({ id: name, name, value }));
+}
 function ReportsCenter() {
   const { data } = React.useContext(DataContext);
-  const totalGiving = sumBy(data.giving, 'amount');
-  const totalExpenses = sumBy(data.expenses, 'amount');
-  const openPrayerCount = data.careRequests.filter(row => (row.request_type || 'Prayer') === 'Prayer' && row.status !== 'Closed').length;
-  const welfareTotal = sumBy(data.welfareRecords, 'amount');
+  const [startDate, setStartDate] = React.useState(`${new Date().getFullYear()}-01-01`);
+  const [endDate, setEndDate] = React.useState(today());
+  const inRange = value => dateInRange(value, startDate, endDate);
+  const givingRows = data.giving.filter(row => inRange(row.giving_date));
+  const expenseRows = data.expenses.filter(row => inRange(row.expense_date));
+  const attendanceRows = data.attendance.filter(row => {
+    const service = data.services.find(s => s.id === row.service_id);
+    return service ? inRange(service.service_date) : true;
+  });
+  const visitorRows = data.visitors.filter(row => inRange(row.first_visit_date));
+  const pledgeRows = data.pledges.filter(row => inRange(row.pledge_date));
+  const welfareRows = data.welfareRecords.filter(row => inRange(row.support_date));
+  const totalGiving = sumBy(givingRows, 'amount');
+  const totalExpenses = sumBy(expenseRows, 'amount');
+  const outstandingPledges = pledgeRows.reduce((sum, row) => sum + Math.max(Number(row.pledge_amount || 0) - Number(row.amount_received || 0), 0), 0);
   const activeMembers = data.members.filter(row => row.membership_status === 'Active').length;
+  const membershipGrowth = groupSum(data.members.filter(row => row.joined_date && inRange(row.joined_date)), row => monthKey(row.joined_date));
+  const attendanceByService = data.services.filter(row => inRange(row.service_date)).map(service => {
+    const rows = attendanceRows.filter(row => row.service_id === service.id);
+    return { id: service.id, service: service.service_name, date: service.service_date, present: rows.filter(row => row.status === 'Present').length, online: rows.filter(row => row.status === 'Online').length, absent: rows.filter(row => row.status === 'Absent').length, excused: rows.filter(row => row.status === 'Excused').length, total: rows.length };
+  }).sort((a,b) => String(b.date).localeCompare(String(a.date)));
+  const givingByFund = data.funds.map(fund => ({ id: fund.id, fund: fund.name, amount: sumBy(givingRows.filter(row => row.fund_id === fund.id), 'amount'), expenses: sumBy(expenseRows.filter(row => row.fund_id === fund.id), 'amount') }));
+  const expensesByPurpose = groupSum(expenseRows, row => row.purpose || 'Unspecified', row => row.amount).sort((a,b) => b.value - a.value);
+  const ministryParticipation = data.ministries.map(ministry => ({ id: ministry.id, ministry: ministry.name, members: data.memberMinistries.filter(row => row.ministry_id === ministry.id && row.active !== false).length, events: data.events.filter(row => row.ministry_id === ministry.id && inRange(row.event_date)).length, volunteers: data.volunteerSchedules.filter(row => row.ministry_id === ministry.id && inRange(row.schedule_date)).length }));
+  const careFollowUpRows = data.careRequests.filter(row => row.status !== 'Closed').map(row => ({ id: row.id, member: prayerRequesterName(data, row), type: row.request_type || 'Prayer', priority: row.priority || 'Normal', status: row.status || 'Open', assigned: ministerName(data, row.assigned_minister_id), requested: row.requested_at ? String(row.requested_at).slice(0, 10) : '' }));
+  const birthdayRows = data.members.filter(row => row.dob).map(row => ({ id: row.id, member: row.full_name, type: 'Birthday', date: nextAnnualDate(row.dob), days: daysUntil(nextAnnualDate(row.dob)), phone: row.phone || '' })).filter(row => row.days <= 90).sort((a,b) => a.days - b.days);
+  const membershipAnniversaryRows = data.members.filter(row => row.joined_date).map(row => ({ id: `ann-${row.id}`, member: row.full_name, type: 'Membership Anniversary', date: nextAnnualDate(row.joined_date), days: daysUntil(nextAnnualDate(row.joined_date)), phone: row.phone || '' })).filter(row => row.days <= 90).sort((a,b) => a.days - b.days);
   const reportRows = [
-    { id: 'members', report: 'Members', value: data.members.length, detail: `${activeMembers} active member records` },
-    { id: 'attendance', report: 'Attendance', value: data.attendance.length, detail: `${data.attendance.filter(row => row.status === 'Present').length} present records` },
-    { id: 'giving', report: 'Giving', value: money(totalGiving), detail: `${data.giving.length} giving records` },
-    { id: 'expenses', report: 'Expenses', value: money(totalExpenses), detail: `${data.expenses.length} expense records` },
-    { id: 'welfare', report: 'Welfare', value: money(welfareTotal), detail: `${data.welfareRecords.length} support records` },
-    { id: 'prayers', report: 'Prayer Requests', value: openPrayerCount, detail: `${data.careRequests.filter(row => (row.request_type || 'Prayer') === 'Prayer').length} total prayer records` },
-    { id: 'certificates', report: 'Certificates', value: data.certificates.length, detail: 'Generated certificate records' },
-    { id: 'documents', report: 'Documents', value: data.documents.length, detail: 'Church document records' }
+    { id: 'members', report: 'Total Members', value: data.members.length, detail: `${activeMembers} active` },
+    { id: 'attendance', report: 'Attendance Records', value: attendanceRows.length, detail: `${attendanceRows.filter(row => row.status === 'Present').length} present` },
+    { id: 'visitors', report: 'Visitors', value: visitorRows.length, detail: 'First time and follow up records' },
+    { id: 'giving', report: 'Giving', value: money(totalGiving), detail: `${givingRows.length} giving entries` },
+    { id: 'expenses', report: 'Expenses', value: money(totalExpenses), detail: `${expenseRows.length} expense entries` },
+    { id: 'pledges', report: 'Outstanding Pledges', value: money(outstandingPledges), detail: `${pledgeRows.length} pledge entries` },
+    { id: 'welfare', report: 'Welfare Support', value: money(sumBy(welfareRows, 'amount')), detail: `${welfareRows.length} welfare entries` },
+    { id: 'care', report: 'Open Care Requests', value: careFollowUpRows.length, detail: 'Unclosed prayer and care requests' }
   ];
-  const givingByFund = data.funds.map(fund => ({ id: fund.id, fund: fund.name, amount: sumBy(data.giving.filter(row => row.fund_id === fund.id), 'amount'), expenses: sumBy(data.expenses.filter(row => row.fund_id === fund.id), 'amount') }));
   return <div className="space-y-4">
-    <SectionHeader title="Reports" />
+    <SectionHeader title="Reports" actions={<div className="flex flex-wrap gap-2"><input className="input !w-auto" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /><input className="input !w-auto" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></div>} />
     <div className="grid-fit">
       <StatCard label="Members" value={data.members.length} icon="users" />
       <StatCard label="Net Balance" value={money(totalGiving - totalExpenses)} icon="scale-balanced" accent="blue" />
-      <StatCard label="Open Prayers" value={openPrayerCount} icon="hands-praying" accent="amber" />
-      <StatCard label="Welfare Support" value={money(welfareTotal)} icon="hand-holding-heart" accent="rose" />
+      <StatCard label="Visitors" value={visitorRows.length} icon="address-card" accent="amber" />
+      <StatCard label="Outstanding Pledges" value={money(outstandingPledges)} icon="file-signature" accent="rose" />
     </div>
+    <div className="card p-5"><h3 className="font-extrabold mb-3">Executive Summary</h3><Table columns={[{ key: 'report', label: 'Report' }, { key: 'value', label: 'Value' }, { key: 'detail', label: 'Detail' }]} rows={reportRows} title="Executive Summary" exportFilename={`church-executive-summary-${today()}.csv`} /></div>
     <div className="grid lg:grid-cols-2 gap-4">
-      <div className="card p-5"><h3 className="font-extrabold mb-3">Operational Summary</h3><Table columns={[{ key: 'report', label: 'Report' }, { key: 'value', label: 'Value' }, { key: 'detail', label: 'Detail' }]} rows={reportRows} /></div>
-      <div className="card p-5"><h3 className="font-extrabold mb-3">Giving by Fund</h3><Table columns={[{ key: 'fund', label: 'Fund' }, { key: 'amount', label: 'Giving', render: r => money(r.amount) }, { key: 'expenses', label: 'Expenses', render: r => money(r.expenses) }, { key: 'balance', label: 'Balance', render: r => money(Number(r.amount || 0) - Number(r.expenses || 0)) }]} rows={givingByFund} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Attendance by Service</h3><Table columns={[{ key: 'date', label: 'Date' }, { key: 'service', label: 'Service' }, { key: 'present', label: 'Present' }, { key: 'online', label: 'Online' }, { key: 'absent', label: 'Absent' }, { key: 'total', label: 'Total' }]} rows={attendanceByService} title="Attendance by Service" exportFilename={`church-attendance-report-${today()}.csv`} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Giving by Fund</h3><Table columns={[{ key: 'fund', label: 'Fund' }, { key: 'amount', label: 'Giving', render: r => money(r.amount) }, { key: 'expenses', label: 'Expenses', render: r => money(r.expenses) }, { key: 'balance', label: 'Balance', render: r => money(Number(r.amount || 0) - Number(r.expenses || 0)) }]} rows={givingByFund} title="Giving by Fund" exportFilename={`church-giving-by-fund-${today()}.csv`} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Membership Growth</h3><Table columns={[{ key: 'name', label: 'Month' }, { key: 'value', label: 'New Members' }]} rows={membershipGrowth} title="Membership Growth" exportFilename={`church-membership-growth-${today()}.csv`} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Expenses by Purpose</h3><Table columns={[{ key: 'name', label: 'Purpose' }, { key: 'value', label: 'Amount', render: r => money(r.value) }]} rows={expensesByPurpose} title="Expenses by Purpose" exportFilename={`church-expenses-by-purpose-${today()}.csv`} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Ministry Participation</h3><Table columns={[{ key: 'ministry', label: 'Ministry' }, { key: 'members', label: 'Members' }, { key: 'events', label: 'Events' }, { key: 'volunteers', label: 'Volunteers' }]} rows={ministryParticipation} title="Ministry Participation" exportFilename={`church-ministry-participation-${today()}.csv`} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Care Follow-up</h3><Table columns={[{ key: 'requested', label: 'Date' }, { key: 'member', label: 'Name' }, { key: 'type', label: 'Type' }, { key: 'priority', label: 'Priority' }, { key: 'assigned', label: 'Assigned' }, { key: 'status', label: 'Status' }]} rows={careFollowUpRows} title="Care Follow-up" exportFilename={`church-care-follow-up-${today()}.csv`} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Birthdays</h3><Table columns={[{ key: 'date', label: 'Date' }, { key: 'member', label: 'Member' }, { key: 'days', label: 'Days' }, { key: 'phone', label: 'Phone' }]} rows={birthdayRows} title="Birthdays" exportFilename={`church-birthdays-${today()}.csv`} /></div>
+      <div className="card p-5"><h3 className="font-extrabold mb-3">Membership Anniversaries</h3><Table columns={[{ key: 'date', label: 'Date' }, { key: 'member', label: 'Member' }, { key: 'days', label: 'Days' }, { key: 'phone', label: 'Phone' }]} rows={membershipAnniversaryRows} title="Membership Anniversaries" exportFilename={`church-anniversaries-${today()}.csv`} /></div>
     </div>
+  </div>;
+}
+function NotificationCenter() {
+  const { data } = React.useContext(DataContext);
+  const { session } = React.useContext(SessionContext);
+  const license = getLicenseState(data.churchSettings);
+  const todayKey = today();
+  const rows = [];
+  if (['superadmin', 'admin'].includes(session.role) && license.expiresAt && !license.unlimited) {
+    const days = Math.ceil((new Date(`${license.expiresAt}T23:59:59`).getTime() - Date.now()) / 86400000);
+    if (days <= 30) rows.push({ id: 'license', date: license.expiresAt, type: 'License', priority: days < 0 ? 'Urgent' : days <= 7 ? 'High' : 'Normal', title: `License ${days < 0 ? 'expired' : `expires in ${days} day${days === 1 ? '' : 's'}`}`, status: license.status });
+  }
+  data.members.filter(row => row.dob).forEach(member => {
+    const date = nextAnnualDate(member.dob);
+    const days = daysUntil(date);
+    if (days <= 30) rows.push({ id: `birth-${member.id}`, date, type: 'Birthday', priority: days <= 7 ? 'High' : 'Normal', title: member.full_name, status: `${days} day${days === 1 ? '' : 's'}` });
+  });
+  data.members.filter(row => row.joined_date).forEach(member => {
+    const date = nextAnnualDate(member.joined_date);
+    const days = daysUntil(date);
+    if (days <= 30) rows.push({ id: `ann-${member.id}`, date, type: 'Membership Anniversary', priority: 'Normal', title: member.full_name, status: `${days} day${days === 1 ? '' : 's'}` });
+  });
+  data.careRequests.filter(row => row.status !== 'Closed').forEach(row => rows.push({ id: `care-${row.id}`, date: row.requested_at ? String(row.requested_at).slice(0, 10) : todayKey, type: row.request_type || 'Prayer', priority: row.priority || 'Normal', title: prayerRequesterName(data, row), status: row.status || 'Open' }));
+  data.pastoralVisits.filter(row => row.next_follow_up_date && row.next_follow_up_date <= todayKey && row.status !== 'Completed').forEach(row => rows.push({ id: `visit-${row.id}`, date: row.next_follow_up_date, type: 'Pastoral Follow-up', priority: 'High', title: memberName(data, row.member_id), status: row.status }));
+  data.pledges.filter(row => row.due_date && row.due_date <= todayKey && Math.max(Number(row.pledge_amount || 0) - Number(row.amount_received || 0), 0) > 0).forEach(row => rows.push({ id: `pledge-${row.id}`, date: row.due_date, type: 'Pledge Due', priority: 'High', title: memberName(data, row.member_id), status: money(Math.max(Number(row.pledge_amount || 0) - Number(row.amount_received || 0), 0)) }));
+  data.events.filter(row => row.event_date && row.event_date >= todayKey && daysUntil(row.event_date) <= 30 && row.status !== 'Cancelled').forEach(row => rows.push({ id: `event-${row.id}`, date: row.event_date, type: 'Event', priority: daysUntil(row.event_date) <= 7 ? 'High' : 'Normal', title: row.title, status: row.status }));
+  data.volunteerSchedules.filter(row => row.schedule_date && row.schedule_date >= todayKey && daysUntil(row.schedule_date) <= 14).forEach(row => rows.push({ id: `vol-${row.id}`, date: row.schedule_date, type: 'Volunteer Schedule', priority: 'Normal', title: `${memberName(data, row.member_id)} - ${row.role_title || 'Volunteer'}`, status: row.status }));
+  data.reminders.filter(row => row.reminder_date && row.reminder_date >= todayKey && daysUntil(row.reminder_date) <= 30 && row.status === 'Pending').forEach(row => rows.push({ id: `rem-${row.id}`, date: row.reminder_date, type: row.reminder_type || 'Reminder', priority: daysUntil(row.reminder_date) <= 7 ? 'High' : 'Normal', title: row.title, status: row.status }));
+  data.announcements.filter(row => row.status === 'Published' && row.publish_date && row.publish_date >= todayKey).forEach(row => rows.push({ id: `annc-${row.id}`, date: row.publish_date, type: 'Announcement', priority: 'Normal', title: row.title, status: row.audience || 'All Members' }));
+  const visibleRows = rows.sort((a,b) => String(a.date).localeCompare(String(b.date))).filter(row => {
+    if (session.role === 'member') return ['Birthday', 'Membership Anniversary', 'Event', 'Announcement', 'Volunteer Schedule'].includes(row.type) || row.title === linkedUserName(data, 'member', session.linkedId);
+    if (session.role === 'finance_officer') return ['Pledge Due', 'License', 'Announcement'].includes(row.type);
+    return true;
+  });
+  return <div className="space-y-4">
+    <SectionHeader title="Notification Center" />
+    <div className="grid-fit">
+      <StatCard label="Total Alerts" value={visibleRows.length} icon="bell" />
+      <StatCard label="High Priority" value={visibleRows.filter(row => ['High', 'Urgent'].includes(row.priority)).length} icon="triangle-exclamation" accent="rose" />
+      <StatCard label="Upcoming Events" value={visibleRows.filter(row => row.type === 'Event').length} icon="calendar-days" accent="blue" />
+      <StatCard label="Care Follow-up" value={visibleRows.filter(row => ['Prayer', 'Counseling', 'Hospital Visit', 'Bereavement', 'Welfare', 'Discipleship', 'Other'].includes(row.type)).length} icon="hands-praying" accent="amber" />
+    </div>
+    <Table columns={[{ key: 'date', label: 'Date' }, { key: 'type', label: 'Type' }, { key: 'priority', label: 'Priority', render: r => <span className={`pill ${statusClass(r.priority)}`}>{r.priority}</span> }, { key: 'title', label: 'Title' }, { key: 'status', label: 'Status' }]} rows={visibleRows} title="Notifications" exportFilename={`church-notifications-${today()}.csv`} />
+  </div>;
+}
+function ActivityLogCenter() {
+  const { data } = React.useContext(DataContext);
+  const rows = safeArray(data.auditLogs).sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return <div className="space-y-4">
+    <SectionHeader title="Activity Log" />
+    <div className="grid-fit">
+      <StatCard label="Tracked Actions" value={rows.length} icon="clock-rotate-left" />
+      <StatCard label="Today" value={rows.filter(row => String(row.created_at || '').slice(0,10) === today()).length} icon="calendar-day" accent="blue" />
+      <StatCard label="Deletes" value={rows.filter(row => String(row.action || '').includes('delete')).length} icon="trash" accent="rose" />
+      <StatCard label="Backups" value={rows.filter(row => String(row.action || '').includes('backup')).length} icon="database" accent="amber" />
+    </div>
+    <Table columns={[{ key: 'created_at', label: 'Date', render: r => r.created_at ? new Date(r.created_at).toLocaleString() : '' }, { key: 'actor_name', label: 'User', render: r => r.actor_name || r.actor_username || ROLE_LABELS[r.actor_role] || r.actor_role }, { key: 'action', label: 'Action' }, { key: 'area', label: 'Area' }, { key: 'record_label', label: 'Record' }]} rows={rows} pageSize={50} title="Activity Log" exportFilename={`church-activity-log-${today()}.csv`} />
+  </div>;
+}
+function BackupRestoreCenter() {
+  const { data, createBackupRecord, restoreFromBackup, updateCollection, notify } = React.useContext(DataContext);
+  const { session } = React.useContext(SessionContext);
+  const [backupName, setBackupName] = React.useState(`${data.churchSettings.church_name || 'Church'} Backup`);
+  const [selectedKeys, setSelectedKeys] = React.useState(RESTORE_COLLECTION_KEYS);
+  const [restoreSettings, setRestoreSettings] = React.useState(false);
+  const [preview, setPreview] = React.useState(null);
+  const canRestore = ['superadmin', 'admin'].includes(session.role);
+  const toggleKey = key => setSelectedKeys(keys => keys.includes(key) ? keys.filter(item => item !== key) : [...keys, key]);
+  const makeBackup = async download => {
+    try { await createBackupRecord({ backupName, selectedKeys, download }); }
+    catch (error) { notify('error', error?.message || 'Backup failed.'); }
+  };
+  const chooseFile = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const payload = normalizeBackupPayload(await readJsonFile(file));
+      setPreview(payload);
+      setSelectedKeys(payload.collection_keys.filter(key => RESTORE_COLLECTION_KEYS.includes(key)));
+    } catch (error) { notify('error', error?.message || 'Backup file could not be loaded.'); }
+  };
+  const restorePreview = async payload => {
+    if (!canRestore) return;
+    const normalized = normalizeBackupPayload(payload);
+    const keys = selectedKeys.filter(key => normalized.collections?.[key]);
+    if (!keys.length && !restoreSettings) { notify('error', 'Select at least one restorable section.'); return; }
+    if (!window.confirm('Restore selected records from this backup?')) return;
+    await restoreFromBackup(normalized, { selectedKeys: keys, restoreSettings });
+    setPreview(null);
+  };
+  const removeBackup = async row => {
+    if (!window.confirm('Delete this backup history record?')) return;
+    await updateCollection('backupRecords', rows => rows.filter(item => item.id !== row.id), { successMessage: 'Backup record deleted.' });
+  };
+  const historyRows = safeArray(data.backupRecords).sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return <div className="space-y-4">
+    <SectionHeader title="Backup and Restore" />
+    <div className="card p-5 space-y-4">
+      <div className="grid md:grid-cols-2 gap-4">
+        <Field label="Backup Name"><input className="input" value={backupName} onChange={e => setBackupName(e.target.value)} /></Field>
+        <Field label="Restore Options"><label className="inline-flex items-center gap-2 font-semibold"><input type="checkbox" checked={restoreSettings} onChange={e => setRestoreSettings(e.target.checked)} /> Include church settings when restoring</label></Field>
+      </div>
+      <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-2">
+        {RESTORE_COLLECTION_KEYS.map(key => <label key={key} className="rounded-xl border bg-white px-3 py-2 text-sm font-semibold flex items-center gap-2"><input type="checkbox" checked={selectedKeys.includes(key)} onChange={() => toggleKey(key)} />{COLLECTION_LABELS[key] || key}</label>)}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn btn-primary" onClick={() => makeBackup(true)}><i className="fas fa-download"></i>Create and Download Backup</button>
+        <button className="btn btn-outline" onClick={() => makeBackup(false)}><i className="fas fa-database"></i>Save Backup Record</button>
+        <label className="btn btn-secondary cursor-pointer"><i className="fas fa-upload"></i>Load Backup File<input type="file" accept="application/json,.json" className="hidden" onChange={chooseFile} /></label>
+      </div>
+    </div>
+    {preview && <div className="card p-5 space-y-3 border-emerald-200 bg-emerald-50">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div><h3 className="font-extrabold text-emerald-900">Backup Loaded</h3><div className="text-sm text-emerald-800">{preview.church_name || preview.churchSettings?.church_name || 'Church backup'} | {preview.created_at ? new Date(preview.created_at).toLocaleString() : ''}</div></div>
+        <div className="flex gap-2"><button className="btn btn-primary" onClick={() => restorePreview(preview)}><i className="fas fa-rotate-left"></i>Restore Selected</button><button className="btn btn-outline" onClick={() => setPreview(null)}>Close</button></div>
+      </div>
+      <Table columns={[{ key: 'section', label: 'Section' }, { key: 'count', label: 'Records' }]} rows={Object.entries(preview.record_counts || {}).map(([section, count]) => ({ id: section, section: COLLECTION_LABELS[section] || section, count }))} pageSize={40} />
+    </div>}
+    <div className="card p-5"><h3 className="font-extrabold mb-3">Backup History</h3><Table columns={[{ key: 'created_at', label: 'Created', render: r => r.created_at ? new Date(r.created_at).toLocaleString() : '' }, { key: 'backup_name', label: 'Name' }, { key: 'backup_type', label: 'Type' }, { key: 'created_by_username', label: 'Created By' }, { key: 'collection_keys', label: 'Sections', render: r => safeArray(r.collection_keys).length }, { key: 'restore_count', label: 'Restores' }]} rows={historyRows} pageSize={30} renderActions={row => <div className="flex gap-2"><button className="btn btn-outline !py-1.5" onClick={() => { setPreview(normalizeBackupPayload(row.backup_json || {})); setSelectedKeys(safeArray(row.collection_keys).filter(key => RESTORE_COLLECTION_KEYS.includes(key))); }}>Open</button><button className="btn btn-danger !py-1.5" onClick={() => removeBackup(row)}>Delete</button></div>} /></div>
   </div>;
 }
 function CredentialsManagement() {
@@ -2504,13 +2909,13 @@ function linkedUserName(data, role, linkedId) {
   return memberName(data, linkedId);
 }
 function roleNavItems(role) {
-  if (role === 'superadmin') return [['dashboard','Master Dashboard','gauge-high'], ['churchadmin','Church Admin Credentials','user-shield'], ['access','Platform Access Control','lock'], ['license','License Management','certificate'], ['credentials','All Accounts','key'], ['settings','Church Settings','gear']];
-  if (role === 'admin') return [['dashboard','Dashboard','gauge-high'], ['license','License Plan Usage','certificate'], ['members','Members','users'], ['households','Households','house'], ['ministries','Ministries','people-group'], ['ministers','Ministers','user-tie'], ['financeofficers','Finance Officers','calculator'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance','wallet'], ['events','Events','calendar-days'], ['assignments','Ministry Assignments','sitemap'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['credentials','Accounts','key'], ['chat','Chat','comments'], ['settings','Settings','gear']];
-  if (role === 'senior_pastor') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance Summary','chart-pie'], ['events','Events','calendar-days'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
-  if (role === 'pastor') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['events','Events','calendar-days'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
-  if (role === 'finance_officer') return [['dashboard','Dashboard','gauge-high'], ['finance','Finance Center','wallet'], ['members','Members','users'], ['pledges','Pledges','file-signature'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
-  if (role === 'ministry_leader') return [['dashboard','Dashboard','gauge-high'], ['members','Ministry Members','users'], ['assignments','Assignments','sitemap'], ['events','Events','calendar-days'], ['volunteers','Volunteers','hands-helping'], ['announcements','Announcements','bullhorn'], ['chat','Chat','comments']];
-  if (role === 'member') return [['dashboard','Dashboard','gauge-high'], ['profile','My Profile','id-card'], ['giving','My Giving','hand-holding-dollar'], ['pledges','My Pledges','file-signature'], ['attendance','My Attendance','clipboard-check'], ['care','Prayer Requests','hands-praying'], ['events','Events','calendar-days'], ['announcements','Announcements','bullhorn'], ['chat','Chat','comments']];
+  if (role === 'superadmin') return [['dashboard','Master Dashboard','gauge-high'], ['churchadmin','Church Admin Credentials','user-shield'], ['access','Platform Access Control','lock'], ['license','License Management','certificate'], ['credentials','All Accounts','key'], ['backup','Backup and Restore','database'], ['audit','Activity Log','clock-rotate-left'], ['notifications','Notifications','bell'], ['settings','Church Settings','gear']];
+  if (role === 'admin') return [['dashboard','Dashboard','gauge-high'], ['license','License Plan Usage','certificate'], ['members','Members','users'], ['households','Households','house'], ['ministries','Ministries','people-group'], ['ministers','Ministers','user-tie'], ['financeofficers','Finance Officers','calculator'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance','wallet'], ['events','Events','calendar-days'], ['assignments','Ministry Assignments','sitemap'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['notifications','Notifications','bell'], ['reports','Reports','chart-column'], ['backup','Backup and Restore','database'], ['audit','Activity Log','clock-rotate-left'], ['credentials','Accounts','key'], ['chat','Chat','comments'], ['settings','Settings','gear']];
+  if (role === 'senior_pastor') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance Summary','chart-pie'], ['events','Events','calendar-days'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['notifications','Notifications','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
+  if (role === 'pastor') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['events','Events','calendar-days'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['notifications','Notifications','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
+  if (role === 'finance_officer') return [['dashboard','Dashboard','gauge-high'], ['finance','Finance Center','wallet'], ['members','Members','users'], ['pledges','Pledges','file-signature'], ['notifications','Notifications','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
+  if (role === 'ministry_leader') return [['dashboard','Dashboard','gauge-high'], ['members','Ministry Members','users'], ['assignments','Assignments','sitemap'], ['events','Events','calendar-days'], ['volunteers','Volunteers','hands-helping'], ['announcements','Announcements','bullhorn'], ['notifications','Notifications','bell'], ['chat','Chat','comments']];
+  if (role === 'member') return [['dashboard','Dashboard','gauge-high'], ['profile','My Profile','id-card'], ['giving','My Giving','hand-holding-dollar'], ['pledges','My Pledges','file-signature'], ['attendance','My Attendance','clipboard-check'], ['care','Prayer Requests','hands-praying'], ['events','Events','calendar-days'], ['announcements','Announcements','bullhorn'], ['notifications','Notifications','bell'], ['chat','Chat','comments']];
   return [['dashboard','Dashboard','gauge-high']];
 }
 
@@ -2590,10 +2995,14 @@ function AppShell() {
       throw new Error('Secure login succeeded, but records could not load. Run the production SQL update and try again.');
     }
     await store.setPresenceStatus(credential.role, credential.linked_entity_id, true);
+    store.logActivity?.({ action: 'login', area: 'Authentication', record_label: credential.username, details: { role: credential.role } });
     if (boolValue(credential.force_password_change)) setForcePasswordModal(true);
   };
   const logout = async () => {
-    if (session.role) await store.setPresenceStatus(session.role, session.linkedId, false);
+    if (session.role) {
+      store.logActivity?.({ action: 'logout', area: 'Authentication', record_label: session.username, details: { role: session.role } });
+      await store.setPresenceStatus(session.role, session.linkedId, false);
+    }
     try {
       if (hasActiveSessionToken() && supabaseClient) await supabaseClient.rpc('church_logout');
     } catch (error) {}
@@ -2868,6 +3277,9 @@ function SuperAdminDashboard({ activeNav }) {
   if (activeNav === 'churchadmin') return <SuperAdminChurchAdminCredentialPanel />;
   if (activeNav === 'license') return <SuperAdminLicensePanel />;
   if (activeNav === 'credentials') return <CredentialsManagement />;
+  if (activeNav === 'backup') return <BackupRestoreCenter />;
+  if (activeNav === 'audit') return <ActivityLogCenter />;
+  if (activeNav === 'notifications') return <NotificationCenter />;
   if (activeNav === 'settings') return <SettingsManager />;
   return <SuperAdminMaintenanceDashboard />;
 }
@@ -3091,7 +3503,10 @@ function AdminDashboard({ activeNav }) {
   if (activeNav === 'certificates') return <CertificatesManagement />;
   if (activeNav === 'announcements') return <AnnouncementsManagement />;
   if (activeNav === 'reminders') return <RemindersManagement />;
+  if (activeNav === 'notifications') return <NotificationCenter />;
   if (activeNav === 'reports') return <ReportsCenter />;
+  if (activeNav === 'backup') return <BackupRestoreCenter />;
+  if (activeNav === 'audit') return <ActivityLogCenter />;
   if (activeNav === 'credentials') return <CredentialsManagement />;
   if (activeNav === 'chat') return <ChatManagement role="admin" linkedId={null} />;
   if (activeNav === 'settings') return <SettingsManager />;
@@ -3112,6 +3527,7 @@ function SeniorPastorDashboard({ activeNav }) {
   if (activeNav === 'certificates') return <CertificatesManagement />;
   if (activeNav === 'announcements') return <AnnouncementsManagement />;
   if (activeNav === 'reminders') return <RemindersManagement />;
+  if (activeNav === 'notifications') return <NotificationCenter />;
   if (activeNav === 'reports') return <ReportsCenter />;
   if (activeNav === 'chat') return <ChatManagement role="senior_pastor" linkedId={session.linkedId} />;
   return <OverviewDashboard title="Senior Pastor Dashboard" />;
@@ -3128,6 +3544,7 @@ function PastorDashboard({ activeNav }) {
   if (activeNav === 'certificates') return <CertificatesManagement />;
   if (activeNav === 'announcements') return <AnnouncementsManagement />;
   if (activeNav === 'reminders') return <RemindersManagement />;
+  if (activeNav === 'notifications') return <NotificationCenter />;
   if (activeNav === 'reports') return <ReportsCenter />;
   if (activeNav === 'chat') return <ChatManagement role="pastor" linkedId={session.linkedId} />;
   return <OverviewDashboard title="Pastor Dashboard" />;
@@ -3137,6 +3554,7 @@ function FinanceOfficerDashboard({ activeNav }) {
   if (activeNav === 'finance') return <FinanceCenter />;
   if (activeNav === 'members') return <MembersManagement />;
   if (activeNav === 'pledges') return <PledgesManagement />;
+  if (activeNav === 'notifications') return <NotificationCenter />;
   if (activeNav === 'reports') return <ReportsCenter />;
   if (activeNav === 'chat') return <ChatManagement role="finance_officer" linkedId={session.linkedId} />;
   return <OverviewDashboard title="Finance Dashboard" />;
@@ -3151,6 +3569,7 @@ function MinistryLeaderDashboard({ activeNav }) {
   if (activeNav === 'events') return <EventsCenter ministryIds={ministryIds} />;
   if (activeNav === 'volunteers') return <VolunteerSchedulesManagement ministryIds={ministryIds} />;
   if (activeNav === 'announcements') return <AnnouncementsManagement readOnly />;
+  if (activeNav === 'notifications') return <NotificationCenter />;
   if (activeNav === 'chat') return <ChatManagement role="ministry_leader" linkedId={session.linkedId} />;
   return <OverviewDashboard title="Ministry Leader Dashboard" />;
 }
@@ -3181,6 +3600,8 @@ function MemberProfile({ member }) {
         <Field label="Full Name"><input className="input" value={form.full_name || ''} onChange={e => setForm({ ...form, full_name: e.target.value })} /></Field>
         <Field label="Phone"><input className="input" value={form.phone || ''} onChange={e => setForm({ ...form, phone: e.target.value })} /></Field>
         <Field label="Email"><input className="input" value={form.email || ''} onChange={e => setForm({ ...form, email: e.target.value })} /></Field>
+        <Field label="Date of Birth"><input className="input" type="date" value={form.dob || ''} onChange={e => setForm({ ...form, dob: e.target.value })} /></Field>
+        <Field label="Marital Status"><select className="select" value={form.marital_status || 'Single'} onChange={e => setForm({ ...form, marital_status: e.target.value })}>{MARITAL_STATUSES.map(x => <option key={x}>{x}</option>)}</select></Field>
         <Field label="Address"><input className="input" value={form.address || ''} onChange={e => setForm({ ...form, address: e.target.value })} /></Field>
         <Field label="Primary Ministry"><input className="input" readOnly value={ministryName(data, form.primary_ministry_id)} /></Field>
         <Field label="Membership Status"><input className="input" readOnly value={form.membership_status || ''} /></Field>
@@ -3201,9 +3622,19 @@ function MemberGivingView({ member }) {
   return <div className="space-y-4"><SectionHeader title="My Giving" subtitle={`Total: ${money(sumBy(rows, 'amount'))}`} /><Table columns={[{ key: 'giving_date', label: 'Date' }, { key: 'fund_id', label: 'Fund', render: r => fundName(data, r.fund_id) }, { key: 'amount', label: 'Amount', render: r => <span className="font-extrabold text-emerald-700">{money(r.amount)}</span> }, { key: 'payment_method', label: 'Method' }, { key: 'reference', label: 'Reference' }]} rows={rows} /></div>;
 }
 function MemberPledgesView({ member }) {
-  const { data } = React.useContext(DataContext);
+  const { data, updateCollection, notify } = React.useContext(DataContext);
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState({ fund_id: data.funds[0]?.id || '', pledge_amount: '', due_date: '', notes: '' });
   const rows = data.pledges.filter(row => row.member_id === member.id);
-  return <div className="space-y-4"><SectionHeader title="My Pledges" /><Table columns={[{ key: 'fund_id', label: 'Fund', render: r => fundName(data, r.fund_id) }, { key: 'pledge_date', label: 'Pledge Date' }, { key: 'pledge_amount', label: 'Pledged', render: r => money(r.pledge_amount) }, { key: 'amount_received', label: 'Received', render: r => money(r.amount_received) }, { key: 'balance', label: 'Balance', render: r => money(Math.max(Number(r.pledge_amount || 0) - Number(r.amount_received || 0), 0)) }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }]} rows={rows} /></div>;
+  const save = async e => {
+    e.preventDefault();
+    if (!form.fund_id || Number(form.pledge_amount || 0) <= 0) { notify('error', 'Select a fund and enter a pledge amount.'); return; }
+    const payload = { id: uid(), member_id: member.id, fund_id: form.fund_id, pledge_date: today(), pledge_amount: Number(form.pledge_amount || 0), amount_received: 0, due_date: form.due_date || '', status: 'Open', notes: form.notes || '' };
+    await updateCollection('pledges', items => [payload, ...safeArray(items)], { successMessage: 'Pledge submitted successfully.' });
+    setForm({ fund_id: data.funds[0]?.id || '', pledge_amount: '', due_date: '', notes: '' });
+    setOpen(false);
+  };
+  return <div className="space-y-4"><SectionHeader title="My Pledges" actions={<button className="btn btn-primary" onClick={() => setOpen(true)}><i className="fas fa-plus"></i>New Pledge</button>} /><Table columns={[{ key: 'fund_id', label: 'Fund', render: r => fundName(data, r.fund_id) }, { key: 'pledge_date', label: 'Pledge Date' }, { key: 'pledge_amount', label: 'Pledged', render: r => money(r.pledge_amount) }, { key: 'amount_received', label: 'Received', render: r => money(r.amount_received) }, { key: 'balance', label: 'Balance', render: r => money(Math.max(Number(r.pledge_amount || 0) - Number(r.amount_received || 0), 0)) }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }]} rows={rows} /><Modal open={open} title="New Pledge" onClose={() => setOpen(false)}><form onSubmit={save} className="space-y-4"><div className="grid md:grid-cols-2 gap-4"><Field label="Fund"><select className="select" value={form.fund_id} onChange={e => setForm({ ...form, fund_id: e.target.value })}>{data.funds.filter(row => row.active !== false).map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></Field><Field label="Amount"><input className="input" type="number" min="0" step="0.01" value={form.pledge_amount} onChange={e => setForm({ ...form, pledge_amount: e.target.value })} /></Field><Field label="Due Date"><input className="input" type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} /></Field><Field label="Notes"><textarea className="textarea" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}></textarea></Field></div><div className="flex justify-end gap-2"><button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button><button className="btn btn-primary">Save Pledge</button></div></form></Modal></div>;
 }
 function MemberAttendanceView({ member }) {
   const { data } = React.useContext(DataContext);
@@ -3228,13 +3659,24 @@ function MemberCareView({ member }) {
 function MemberEventsView({ member }) {
   const { data, updateCollection } = React.useContext(DataContext);
   const register = async event => {
-    const exists = data.eventRegistrations.some(row => row.event_id === event.id && row.member_id === member.id);
-    if (exists) return;
+    const existing = data.eventRegistrations.find(row => row.event_id === event.id && row.member_id === member.id);
+    if (existing) {
+      await updateCollection('eventRegistrations', rows => rows.map(row => row.id === existing.id ? { ...row, registration_status: 'Registered', registered_at: row.registered_at || nowIso() } : row), { successMessage: 'Event registration updated successfully.' });
+      return;
+    }
     const payload = { id: uid(), event_id: event.id, member_id: member.id, visitor_name: '', registration_status: 'Registered', registered_at: nowIso(), notes: '' };
     await updateCollection('eventRegistrations', rows => [payload, ...safeArray(rows)], { successMessage: 'Event registration saved successfully.' });
   };
-  const rows = data.events.map(event => ({ ...event, registered: data.eventRegistrations.some(row => row.event_id === event.id && row.member_id === member.id) }));
-  return <div className="space-y-4"><SectionHeader title="Events" /><Table columns={[{ key: 'title', label: 'Event' }, { key: 'ministry_id', label: 'Ministry', render: r => ministryName(data, r.ministry_id) }, { key: 'event_date', label: 'Date' }, { key: 'venue', label: 'Venue' }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }, { key: 'registered', label: 'Registration', render: r => r.registered ? <span className="pill active">Registered</span> : <button className="btn btn-outline !py-1.5" onClick={() => register(r)}>Register</button> }]} rows={rows} /></div>;
+  const cancel = async event => {
+    const existing = data.eventRegistrations.find(row => row.event_id === event.id && row.member_id === member.id);
+    if (!existing) return;
+    await updateCollection('eventRegistrations', rows => rows.map(row => row.id === existing.id ? { ...row, registration_status: 'Cancelled' } : row), { successMessage: 'Event registration cancelled.' });
+  };
+  const rows = data.events.map(event => {
+    const registration = data.eventRegistrations.find(row => row.event_id === event.id && row.member_id === member.id);
+    return { ...event, registered: !!registration && registration.registration_status !== 'Cancelled', registration_status: registration?.registration_status || '' };
+  });
+  return <div className="space-y-4"><SectionHeader title="Events" /><Table columns={[{ key: 'title', label: 'Event' }, { key: 'ministry_id', label: 'Ministry', render: r => ministryName(data, r.ministry_id) }, { key: 'event_date', label: 'Date' }, { key: 'venue', label: 'Venue' }, { key: 'status', label: 'Status', render: r => <span className={`pill ${statusClass(r.status)}`}>{r.status}</span> }, { key: 'registered', label: 'Registration', render: r => r.registered ? <div className="flex gap-2"><span className="pill active">Registered</span><button className="btn btn-outline !py-1.5" onClick={() => cancel(r)}>Cancel</button></div> : <button className="btn btn-outline !py-1.5" onClick={() => register(r)}>Register</button> }]} rows={rows} /></div>;
 }
 function MemberDashboard({ activeNav }) {
   const { data } = React.useContext(DataContext);
@@ -3248,6 +3690,7 @@ function MemberDashboard({ activeNav }) {
   if (activeNav === 'care') return <MemberCareView member={member} />;
   if (activeNav === 'events') return <MemberEventsView member={member} />;
   if (activeNav === 'announcements') return <AnnouncementsManagement readOnly />;
+  if (activeNav === 'notifications') return <NotificationCenter />;
   if (activeNav === 'chat') return <ChatManagement role="member" linkedId={member.id} />;
   const myGiving = data.giving.filter(g => g.member_id === member.id);
   const myAttendance = data.attendance.filter(a => a.member_id === member.id);
