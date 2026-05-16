@@ -102,14 +102,21 @@ function createSupabaseClient(sessionToken='') {
   });
 }
 let activeSessionToken = '';
+let activeSessionRole = '';
 let supabaseClient = createSupabaseClient();
 const publicSupabaseClient = createSupabaseClient();
 function setSupabaseSessionToken(token='') {
   activeSessionToken = String(token || '');
   supabaseClient = createSupabaseClient(activeSessionToken);
 }
+function setActiveSessionRole(role='') {
+  activeSessionRole = String(role || '').toLowerCase();
+}
 function hasActiveSessionToken() {
   return Boolean(activeSessionToken);
+}
+function canSyncChurchSettings() {
+  return ['admin', 'superadmin'].includes(activeSessionRole);
 }
 const offlineStore = localforage.createInstance({ name: 'church_mgmt_final_v1' });
 const DATA_KEY = 'church_management_data_v1';
@@ -624,11 +631,13 @@ async function syncSimpleTable(table, prevItems=[], nextItems=[]) {
 }
 async function syncSettings(settings) {
   if (!supabaseClient) return;
+  if (!canSyncChurchSettings()) return false;
   const { error } = await supabaseClient.from('church_settings').upsert({ ...ensureDailyVerseSettings(settings), id: 1 }, { onConflict: 'id' });
   if (error) throw error;
+  return true;
 }
 async function syncAll(data) {
-  await syncSettings(data.churchSettings);
+  if (canSyncChurchSettings()) await syncSettings(data.churchSettings);
   for (const key of COLLECTION_KEYS) {
     if (key === 'credentials') continue;
     await syncSimpleTable(TABLES[key], [], data[key]);
@@ -734,6 +743,12 @@ function DataProvider({ children }) {
   const flushPendingChanges = React.useCallback(async () => {
     setBusyText('Syncing pending church records...');
     try {
+      if (!canSyncChurchSettings()) {
+        await reloadData({ silent: true });
+        setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', pendingCount: 0, lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
+        notify('success', 'Records refreshed. Settings changes require an administrator account.');
+        return;
+      }
       await syncAll(data);
       setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', pendingCount: 0, lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
       notify('success', 'Pending records synced successfully.');
@@ -743,7 +758,7 @@ function DataProvider({ children }) {
     } finally {
       setBusyText('');
     }
-  }, [data, notify]);
+  }, [data, notify, reloadData]);
 
   const setPresenceStatus = React.useCallback(async (role, linkedId, isOnline) => {
     if (!role || !linkedId) return;
@@ -1848,13 +1863,16 @@ function AppShell() {
       if (saved.sessionExpiresAt && new Date(saved.sessionExpiresAt).getTime() <= Date.now()) {
         sessionStorage.removeItem(SESSION_KEY);
         setSupabaseSessionToken('');
+        setActiveSessionRole('');
         return;
       }
       setSupabaseSessionToken(saved.sessionToken);
+      setActiveSessionRole(saved.role);
       setSession(saved);
       store.reloadData({ silent: true }).then(ok => {
         if (!ok) {
           setSupabaseSessionToken('');
+          setActiveSessionRole('');
           sessionStorage.removeItem(SESSION_KEY);
           setSession({ role: null, linkedId: null, credentialId: null, username: '' });
           return;
@@ -1872,6 +1890,7 @@ function AppShell() {
     const credential = Array.isArray(result) ? result[0] : result;
     if (!credential?.session_token) throw new Error(store.data.churchSettings.failed_login_greeting_message || 'Login failed.');
     setSupabaseSessionToken(credential.session_token);
+    setActiveSessionRole(credential.role);
     const next = {
       role: credential.role,
       linkedId: credential.linked_entity_id || null,
@@ -1886,6 +1905,7 @@ function AppShell() {
     const loaded = await store.reloadData({ silent: true });
     if (!loaded) {
       setSupabaseSessionToken('');
+      setActiveSessionRole('');
       sessionStorage.removeItem(SESSION_KEY);
       setSession({ role: null, linkedId: null, credentialId: null, username: '' });
       throw new Error('Secure login succeeded, but records could not load. Run the production SQL update and try again.');
@@ -1899,6 +1919,7 @@ function AppShell() {
       if (hasActiveSessionToken() && supabaseClient) await supabaseClient.rpc('church_logout');
     } catch (error) {}
     setSupabaseSessionToken('');
+    setActiveSessionRole('');
     setSession({ role: null, linkedId: null, credentialId: null, username: '' });
     setActiveNav('dashboard');
     sessionStorage.removeItem(SESSION_KEY);
