@@ -87,7 +87,29 @@
 const SUPABASE_URL = 'https://nzhcngwyttwrndvaxhvl.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_L23gyL2aX60oD48Ktbm1OA_O-BsL8LY';
 const hasSupabaseCreds = !SUPABASE_URL.includes('YOUR_') && !SUPABASE_ANON_KEY.includes('YOUR_');
-const supabase = hasSupabaseCreds ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+function createSupabaseClient(sessionToken='') {
+  if (!hasSupabaseCreds || !window.supabase) return null;
+  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: {
+      headers: sessionToken ? { 'x-cms-session-token': sessionToken } : {}
+    },
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  });
+}
+let activeSessionToken = '';
+let supabase = createSupabaseClient();
+const publicSupabase = createSupabaseClient();
+function setSupabaseSessionToken(token='') {
+  activeSessionToken = String(token || '');
+  supabase = createSupabaseClient(activeSessionToken);
+}
+function hasActiveSessionToken() {
+  return Boolean(activeSessionToken);
+}
 const offlineStore = localforage.createInstance({ name: 'church_mgmt_final_v1' });
 const DATA_KEY = 'church_management_data_v1';
 const SESSION_KEY = 'church_management_session_v1';
@@ -252,6 +274,9 @@ const TABLES = {
   presenceRows: 'church_presence_status'
 };
 const COLLECTION_KEYS = Object.keys(TABLES);
+const SAFE_SELECT_COLUMNS = {
+  credentials: 'id,role,linked_entity_type,linked_entity_id,username,force_password_change,account_active,is_system_default,created_at,updated_at'
+};
 const ID = {
   minister1: '00000000-0000-4000-8000-000000000101',
   minister2: '00000000-0000-4000-8000-000000000102',
@@ -404,9 +429,10 @@ function validateImageFile(file) {
 }
 async function uploadImageToStorage(file, folder='general') {
   validateImageFile(file);
-  if (!supabase?.storage) return fileToDataUrl(file);
+  const cleanFolder = cleanPathName(folder);
+  if (!supabase?.storage || cleanFolder === 'certificate-signatures') return fileToDataUrl(file);
   const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-  const path = `${cleanPathName(folder)}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const path = `${cleanFolder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error: uploadError } = await supabase.storage.from('church-media').upload(path, file, { upsert: false, cacheControl: '3600' });
   if (uploadError) throw uploadError;
   const { data } = supabase.storage.from('church-media').getPublicUrl(path);
@@ -419,9 +445,10 @@ function validateGeneralFile(file) {
 }
 async function uploadFileToStorage(file, folder='documents') {
   validateGeneralFile(file);
-  if (!supabase?.storage) return fileToDataUrl(file);
+  const cleanFolder = cleanPathName(folder);
+  if (!supabase?.storage || cleanFolder === 'church-documents' || cleanFolder === 'documents') return fileToDataUrl(file);
   const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
-  const path = `${cleanPathName(folder)}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const path = `${cleanFolder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error: uploadError } = await supabase.storage.from('church-media').upload(path, file, { upsert: false, cacheControl: '3600' });
   if (uploadError) throw uploadError;
   const { data } = supabase.storage.from('church-media').getPublicUrl(path);
@@ -531,12 +558,12 @@ function defaultData() {
     ],
     reminders: [],
     credentials: [
-      { id: '00000000-0000-4000-8000-000000000901', role: 'admin', linked_entity_type: '', linked_entity_id: '', username: 'admin', temporary_password: 'admin12345', force_password_change: false, account_active: true, is_system_default: true },
-      { id: '00000000-0000-4000-8000-000000000902', role: 'senior_pastor', linked_entity_type: 'minister', linked_entity_id: ID.minister1, username: 'senior.pastor', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true },
-      { id: '00000000-0000-4000-8000-000000000903', role: 'pastor', linked_entity_type: 'minister', linked_entity_id: ID.minister2, username: 'pastor', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true },
-      { id: '00000000-0000-4000-8000-000000000904', role: 'finance_officer', linked_entity_type: 'finance_officer', linked_entity_id: ID.finance1, username: 'finance', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true },
-      { id: '00000000-0000-4000-8000-000000000905', role: 'ministry_leader', linked_entity_type: 'member', linked_entity_id: ID.member3, username: 'leader', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true },
-      { id: '00000000-0000-4000-8000-000000000906', role: 'member', linked_entity_type: 'member', linked_entity_id: ID.member1, username: 'member', temporary_password: 'church123', force_password_change: false, account_active: true, is_system_default: true }
+      { id: '00000000-0000-4000-8000-000000000901', role: 'admin', linked_entity_type: '', linked_entity_id: '', username: 'admin', force_password_change: true, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000902', role: 'senior_pastor', linked_entity_type: 'minister', linked_entity_id: ID.minister1, username: 'senior.pastor', force_password_change: true, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000903', role: 'pastor', linked_entity_type: 'minister', linked_entity_id: ID.minister2, username: 'pastor', force_password_change: true, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000904', role: 'finance_officer', linked_entity_type: 'finance_officer', linked_entity_id: ID.finance1, username: 'finance', force_password_change: true, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000905', role: 'ministry_leader', linked_entity_type: 'member', linked_entity_id: ID.member3, username: 'leader', force_password_change: true, account_active: true, is_system_default: true },
+      { id: '00000000-0000-4000-8000-000000000906', role: 'member', linked_entity_type: 'member', linked_entity_id: ID.member1, username: 'member', force_password_change: true, account_active: true, is_system_default: true }
     ],
     chats: [],
     presenceRows: []
@@ -566,8 +593,10 @@ async function fetchSupabaseData() {
   const { data: settings, error: settingsError } = await supabase.from('church_settings').select('*').eq('id', 1).maybeSingle();
   if (settingsError) throw settingsError;
   const loaded = { churchSettings: settings || defaultChurch };
+  if (!hasActiveSessionToken()) return normalizeData(loaded);
   for (const [key, table] of Object.entries(TABLES)) {
-    const { data, error } = await supabase.from(table).select('*');
+    const selectColumns = SAFE_SELECT_COLUMNS[key] || '*';
+    const { data, error } = await supabase.from(table).select(selectColumns);
     if (error) throw error;
     loaded[key] = data || [];
   }
@@ -575,6 +604,7 @@ async function fetchSupabaseData() {
 }
 async function syncSimpleTable(table, prevItems=[], nextItems=[]) {
   if (!supabase) return;
+  if (table === TABLES.credentials) throw new Error('Credentials must be changed from the secure Accounts screen.');
   const prevIds = new Set(safeArray(prevItems).map(x => x.id).filter(Boolean));
   const nextIds = new Set(safeArray(nextItems).map(x => x.id).filter(Boolean));
   const deletedIds = [...prevIds].filter(id => !nextIds.has(id));
@@ -582,7 +612,10 @@ async function syncSimpleTable(table, prevItems=[], nextItems=[]) {
     const { error } = await supabase.from(table).delete().in('id', deletedIds);
     if (error) throw error;
   }
-  const rows = safeArray(nextItems).map(row => cleanForTable(table, row));
+  const prevById = new Map(safeArray(prevItems).map(row => [row.id, cleanForTable(table, row)]));
+  const rows = safeArray(nextItems)
+    .map(row => cleanForTable(table, row))
+    .filter(row => !row.id || JSON.stringify(prevById.get(row.id) || null) !== JSON.stringify(row));
   if (rows.length) {
     const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
     if (error) throw error;
@@ -595,7 +628,10 @@ async function syncSettings(settings) {
 }
 async function syncAll(data) {
   await syncSettings(data.churchSettings);
-  for (const key of COLLECTION_KEYS) await syncSimpleTable(TABLES[key], [], data[key]);
+  for (const key of COLLECTION_KEYS) {
+    if (key === 'credentials') continue;
+    await syncSimpleTable(TABLES[key], [], data[key]);
+  }
 }
 async function persistOffline(data) {
   await offlineStore.setItem(DATA_KEY, clone(data));
@@ -628,11 +664,13 @@ function DataProvider({ children }) {
       setData(remote);
       await persistOffline(remote);
       setOfflineState(state => ({ ...state, mode: 'online', lastSyncAt: nowIso(), lastError: '' }));
+      return true;
     } catch (error) {
       const offline = await loadOffline();
       setData(offline);
       setOfflineState(state => ({ ...state, mode: 'offline', lastError: error?.message || 'Offline data loaded.' }));
       if (!silent) notify('info', 'Local church records loaded.');
+      return false;
     } finally {
       setLoaded(true);
       setBusyText('');
@@ -1589,7 +1627,10 @@ function ReportsCenter() {
   </div>;
 }
 function CredentialsManagement() {
-  const { data } = React.useContext(DataContext);
+  const { data, reloadData, notify } = React.useContext(DataContext);
+  const emptyRecord = { id: '', role: 'member', linked_entity_id: '', username: '', password: '', force_password_change: true, account_active: true };
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState(emptyRecord);
   const linkedOptions = (d, form) => {
     if (['senior_pastor', 'pastor'].includes(form.role)) return optionRows(d.ministers, 'full_name');
     if (form.role === 'finance_officer') return optionRows(d.financeOfficers, 'full_name');
@@ -1597,19 +1638,73 @@ function CredentialsManagement() {
     return [];
   };
   const linkedType = role => ['senior_pastor', 'pastor'].includes(role) ? 'minister' : role === 'finance_officer' ? 'finance_officer' : ['member', 'ministry_leader'].includes(role) ? 'member' : '';
-  return <CrudManager title="Accounts and Credentials" collectionKey="credentials" emptyRecord={{ role: 'member', linked_entity_type: 'member', linked_entity_id: '', username: '', temporary_password: '', force_password_change: true, account_active: true, is_system_default: false }} columns={[
-    { key: 'role', label: 'Role', render: r => ROLE_LABELS[r.role] || r.role }, { key: 'linked_entity_id', label: 'Linked Record', render: r => r.linked_entity_type === 'minister' ? ministerName(data, r.linked_entity_id) : r.linked_entity_type === 'finance_officer' ? nameBy(data.financeOfficers, r.linked_entity_id, 'full_name') : memberName(data, r.linked_entity_id) }, { key: 'username', label: 'Username' }, { key: 'temporary_password', label: 'Password' }, { key: 'force_password_change', label: 'Force Change', render: r => boolValue(r.force_password_change) ? 'Yes' : 'No' }, { key: 'account_active', label: 'Account', render: r => <span className={`pill ${r.account_active ? 'active' : 'inactive'}`}>{r.account_active ? 'Active' : 'Inactive'}</span> }
-  ]} fields={[
-    { name: 'role', label: 'Role', type: 'select', options: ROLE_OPTIONS }, { name: 'linked_entity_id', label: 'Linked Record', type: 'select', options: linkedOptions }, { name: 'username', label: 'Username' }, { name: 'temporary_password', label: 'Temporary Password' }, { name: 'force_password_change', label: 'Force Password Change', type: 'checkbox' }, { name: 'account_active', label: 'Account Active', type: 'checkbox' }
-  ]} preparePayload={(payload, d) => {
-    const role = payload.role || 'member';
-    const linked_entity_type = linkedType(role);
-    const linkedName = linked_entity_type === 'minister' ? ministerName(d, payload.linked_entity_id) : linked_entity_type === 'finance_officer' ? nameBy(d.financeOfficers, payload.linked_entity_id, 'full_name') : memberName(d, payload.linked_entity_id);
-    const username = payload.username || `${String(linkedName || role).toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '')}.${role.slice(0,3)}${Math.floor(Math.random()*900+100)}`;
-    const duplicate = d.credentials.find(x => x.id !== payload.id && String(x.username).toLowerCase() === String(username).toLowerCase());
-    if (duplicate) throw new Error('Username already exists.');
-    return { ...payload, linked_entity_type, username, temporary_password: payload.temporary_password || Math.random().toString(36).slice(-8) + '1', force_password_change: !!payload.force_password_change, account_active: !!payload.account_active };
-  }} />;
+  const startAdd = () => { setForm(emptyRecord); setOpen(true); };
+  const edit = row => setForm({ ...emptyRecord, ...row, password: '' }) || setOpen(true);
+  const linkedRecordName = row => row.linked_entity_type === 'minister' ? ministerName(data, row.linked_entity_id) : row.linked_entity_type === 'finance_officer' ? nameBy(data.financeOfficers, row.linked_entity_id, 'full_name') : memberName(data, row.linked_entity_id);
+  const save = async event => {
+    event.preventDefault();
+    try {
+      if (!supabase) throw new Error('Supabase is not configured.');
+      if (!form.id && String(form.password || '').length < 8) throw new Error('New accounts need a password of at least 8 characters.');
+      if (form.id && form.password && String(form.password).length < 8) throw new Error('New password must be at least 8 characters.');
+      const role = form.role || 'member';
+      const entityType = linkedType(role);
+      const linkedName = entityType === 'minister' ? ministerName(data, form.linked_entity_id) : entityType === 'finance_officer' ? nameBy(data.financeOfficers, form.linked_entity_id, 'full_name') : memberName(data, form.linked_entity_id);
+      const username = (form.username || `${String(linkedName || role).toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '')}.${role.slice(0,3)}${Math.floor(Math.random()*900+100)}`).trim().toLowerCase();
+      const { error } = await supabase.rpc('church_admin_save_credential', {
+        p_id: form.id || null,
+        p_role: role,
+        p_linked_entity_type: entityType || null,
+        p_linked_entity_id: form.linked_entity_id || null,
+        p_username: username,
+        p_password: form.password || null,
+        p_force_password_change: !!form.force_password_change,
+        p_account_active: form.account_active !== false
+      });
+      if (error) throw error;
+      await reloadData({ silent: true });
+      notify('success', 'Account saved securely.');
+      setOpen(false);
+      setForm(emptyRecord);
+    } catch (error) {
+      notify('error', error?.message || 'Unable to save account.');
+    }
+  };
+  const remove = async row => {
+    if (!window.confirm(`Delete account ${row.username}?`)) return;
+    try {
+      const { error } = await supabase.rpc('church_admin_delete_credential', { p_id: row.id });
+      if (error) throw error;
+      await reloadData({ silent: true });
+      notify('success', 'Account deleted securely.');
+    } catch (error) {
+      notify('error', error?.message || 'Unable to delete account.');
+    }
+  };
+  const columns = [
+    { key: 'role', label: 'Role', render: r => ROLE_LABELS[r.role] || r.role },
+    { key: 'linked_entity_id', label: 'Linked Record', render: linkedRecordName },
+    { key: 'username', label: 'Username' },
+    { key: 'force_password_change', label: 'Force Change', render: r => boolValue(r.force_password_change) ? 'Yes' : 'No' },
+    { key: 'account_active', label: 'Account', render: r => <span className={`pill ${r.account_active ? 'active' : 'inactive'}`}>{r.account_active ? 'Active' : 'Inactive'}</span> }
+  ];
+  return <div className="space-y-4">
+    <SectionHeader title="Accounts and Credentials" actions={<button className="btn btn-primary" onClick={startAdd}><i className="fas fa-plus"></i>Add Account</button>} />
+    <Table columns={columns} rows={data.credentials} renderActions={row => <div className="flex gap-2"><button className="btn btn-outline !py-1.5" onClick={() => edit(row)}>Edit</button><button className="btn btn-danger !py-1.5" onClick={() => remove(row)}>Delete</button></div>} />
+    <Modal open={open} title={form.id ? 'Edit Account' : 'Add Account'} onClose={() => setOpen(false)}>
+      <form onSubmit={save} className="space-y-4">
+        <div className="grid md:grid-cols-2 gap-4">
+          <Field label="Role"><select className="select" value={form.role} onChange={e => setForm({ ...form, role: e.target.value, linked_entity_id: '' })}>{ROLE_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
+          <Field label="Linked Record"><select className="select" value={form.linked_entity_id || ''} onChange={e => setForm({ ...form, linked_entity_id: e.target.value })}><option value="">None</option>{linkedOptions(data, form).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
+          <Field label="Username"><input className="input" value={form.username || ''} onChange={e => setForm({ ...form, username: e.target.value })} required /></Field>
+          <Field label={form.id ? 'New Password' : 'Password'}><input className="input" type="password" value={form.password || ''} minLength={form.id ? undefined : 8} placeholder={form.id ? 'Leave blank to keep current password' : ''} onChange={e => setForm({ ...form, password: e.target.value })} required={!form.id} /></Field>
+          <Field label="Force Password Change"><label className="inline-flex items-center gap-2 font-semibold"><input type="checkbox" checked={!!form.force_password_change} onChange={e => setForm({ ...form, force_password_change: e.target.checked })} /> Require change on next login</label></Field>
+          <Field label="Account Active"><label className="inline-flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.account_active !== false} onChange={e => setForm({ ...form, account_active: e.target.checked })} /> Active</label></Field>
+        </div>
+        <div className="flex justify-end gap-2"><button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button><button className="btn btn-primary">Save Account</button></div>
+      </form>
+    </Modal>
+  </div>;
 }
 function SettingsManager() {
   const { data, setChurchSettings } = React.useContext(DataContext);
@@ -1746,35 +1841,74 @@ function AppShell() {
   React.useEffect(() => {
     if (!store.loaded) return;
     try {
-      const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
-      if (!saved?.role) return;
+      localStorage.removeItem(SESSION_KEY);
+      const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
+      if (!saved?.role || !saved?.sessionToken) return;
+      if (saved.sessionExpiresAt && new Date(saved.sessionExpiresAt).getTime() <= Date.now()) {
+        sessionStorage.removeItem(SESSION_KEY);
+        setSupabaseSessionToken('');
+        return;
+      }
+      setSupabaseSessionToken(saved.sessionToken);
       setSession(saved);
-      store.setPresenceStatus(saved.role, saved.linkedId, true);
+      store.reloadData({ silent: true }).then(ok => {
+        if (!ok) {
+          setSupabaseSessionToken('');
+          sessionStorage.removeItem(SESSION_KEY);
+          setSession({ role: null, linkedId: null, credentialId: null, username: '' });
+          return;
+        }
+        store.setPresenceStatus(saved.role, saved.linkedId, true);
+      }).catch(() => {});
     } catch (e) {}
   }, [store.loaded]);
   const loginWithCredentials = async (username, password) => {
     const lower = String(username || '').trim().toLowerCase();
-    if (lower === 'superadmin' && password === 'super12345') {
-      const next = { role: 'superadmin', linkedId: null, credentialId: 'local-superadmin', username: 'superadmin' };
-      setSession(next); setActiveNav('dashboard'); localStorage.setItem(SESSION_KEY, JSON.stringify(next)); return;
-    }
-    const credential = store.data.credentials.find(c => String(c.username || '').toLowerCase() === lower && String(c.temporary_password || '') === String(password || '') && c.account_active);
-    if (!credential) throw new Error(store.data.churchSettings.failed_login_greeting_message || 'Login failed.');
-    const next = { role: credential.role, linkedId: credential.linked_entity_id || null, credentialId: credential.id, username: credential.username };
+    const client = publicSupabase || supabase;
+    if (!client) throw new Error('Supabase is not configured.');
+    const { data: result, error } = await client.rpc('church_login', { p_username: lower, p_password: String(password || '') });
+    if (error) throw new Error(store.data.churchSettings.failed_login_greeting_message || 'Login failed.');
+    const credential = Array.isArray(result) ? result[0] : result;
+    if (!credential?.session_token) throw new Error(store.data.churchSettings.failed_login_greeting_message || 'Login failed.');
+    setSupabaseSessionToken(credential.session_token);
+    const next = {
+      role: credential.role,
+      linkedId: credential.linked_entity_id || null,
+      credentialId: credential.id,
+      username: credential.username,
+      sessionToken: credential.session_token,
+      sessionExpiresAt: credential.expires_at || ''
+    };
     setSession(next);
     setActiveNav('dashboard');
-    localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    const loaded = await store.reloadData({ silent: true });
+    if (!loaded) {
+      setSupabaseSessionToken('');
+      sessionStorage.removeItem(SESSION_KEY);
+      setSession({ role: null, linkedId: null, credentialId: null, username: '' });
+      throw new Error('Secure login succeeded, but records could not load. Run the production SQL update and try again.');
+    }
     await store.setPresenceStatus(credential.role, credential.linked_entity_id, true);
     if (boolValue(credential.force_password_change)) setForcePasswordModal(true);
   };
   const logout = async () => {
     if (session.role) await store.setPresenceStatus(session.role, session.linkedId, false);
+    try {
+      if (hasActiveSessionToken() && supabase) await supabase.rpc('church_logout');
+    } catch (error) {}
+    setSupabaseSessionToken('');
     setSession({ role: null, linkedId: null, credentialId: null, username: '' });
     setActiveNav('dashboard');
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
+    store.reloadData({ silent: true });
   };
-  const changeOwnPassword = async newPassword => {
-    await store.updateCollection('credentials', rows => rows.map(c => c.id === session.credentialId ? { ...c, temporary_password: newPassword, force_password_change: false } : c), { successMessage: 'Password changed successfully.' });
+  const changeOwnPassword = async (currentPassword, newPassword) => {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const { error } = await supabase.rpc('church_change_password', { p_current_password: currentPassword, p_new_password: newPassword });
+    if (error) throw error;
+    store.notify('success', 'Password changed successfully.');
+    await store.reloadData({ silent: true });
     setForcePasswordModal(false);
   };
   const contextValue = { session, setSession, activeNav, setActiveNav, loginWithCredentials, logout, mobileNavOpen, setMobileNavOpen, forcePasswordModal, setForcePasswordModal, changeOwnPassword };
@@ -1887,10 +2021,30 @@ function LoginScreen() {
 }
 function ForcePasswordChangeModal() {
   const { forcePasswordModal, changeOwnPassword } = React.useContext(SessionContext);
+  const { notify } = React.useContext(DataContext);
+  const [currentPassword, setCurrentPassword] = React.useState('');
   const [password, setPassword] = React.useState('');
-  const save = e => { e.preventDefault(); if (password.length < 6) return; changeOwnPassword(password); setPassword(''); };
+  const [confirmPassword, setConfirmPassword] = React.useState('');
+  const save = async e => {
+    e.preventDefault();
+    if (password.length < 8) { notify('error', 'Use at least 8 characters.'); return; }
+    if (password !== confirmPassword) { notify('error', 'Passwords do not match.'); return; }
+    try {
+      await changeOwnPassword(currentPassword, password);
+      setCurrentPassword('');
+      setPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      notify('error', error?.message || 'Password change failed.');
+    }
+  };
   return <Modal open={forcePasswordModal} title="Change Password" onClose={() => {}}>
-    <form onSubmit={save} className="space-y-4"><Field label="New Password"><input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} minLength="6" required /></Field><div className="flex justify-end"><button className="btn btn-primary">Save Password</button></div></form>
+    <form onSubmit={save} className="space-y-4">
+      <Field label="Current Password"><input className="input" type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} autoComplete="current-password" required /></Field>
+      <Field label="New Password"><input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} minLength="8" autoComplete="new-password" required /></Field>
+      <Field label="Confirm New Password"><input className="input" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} minLength="8" autoComplete="new-password" required /></Field>
+      <div className="flex justify-end"><button className="btn btn-primary">Save Password</button></div>
+    </form>
   </Modal>;
 }
 function DashboardRouter() {
