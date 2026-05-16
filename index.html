@@ -404,6 +404,10 @@ const TABLES = {
   presenceRows: 'church_presence_status'
 };
 const COLLECTION_KEYS = Object.keys(TABLES);
+const DEFAULT_TABLE_PAGE_SIZE = 25;
+const MAX_TABLE_PAGE_SIZE = 100;
+const SYNC_BATCH_SIZE = 450;
+const CONTACT_RESULT_LIMIT = 120;
 const EMPTY_TO_NULL_FIELDS = {
   church_ministries: ['leader_member_id', 'leader_minister_id'],
   church_members: ['dob', 'household_id', 'primary_ministry_id', 'joined_date', 'baptism_date'],
@@ -491,6 +495,12 @@ function nowIso() { return new Date().toISOString(); }
 function uid() { return window.crypto?.randomUUID ? window.crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function safeArray(value) { return Array.isArray(value) ? value : []; }
+function chunkArray(items=[], size=SYNC_BATCH_SIZE) {
+  const rows = safeArray(items);
+  const chunks = [];
+  for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
+  return chunks;
+}
 function boolValue(value) { return value === true || value === 'true' || value === 'Yes'; }
 function money(value) { return `GHS ${Number(value || 0).toFixed(2)}`; }
 function addMonthsToDate(startDate, months) {
@@ -583,6 +593,35 @@ function rawCellText(row, col) {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   return value ?? '';
 }
+function compactText(value) {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) return value.map(compactText).join(' ');
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'object') return Object.values(value).slice(0, 10).map(compactText).join(' ');
+  return String(value);
+}
+function normalizeSearchKeys(columns=[], searchKeys=null) {
+  const keys = safeArray(searchKeys).length ? searchKeys : safeArray(columns).map(col => col.key || col);
+  return safeArray(keys).filter(key => key && key !== '__actions');
+}
+function rowSearchText(row, columns=[], searchKeys=null) {
+  return normalizeSearchKeys(columns, searchKeys)
+    .map(key => typeof key === 'function' ? key(row) : row?.[key])
+    .map(compactText)
+    .join(' ')
+    .toLowerCase();
+}
+function stableRowKey(row, index=0) {
+  const preferred = row?.id || row?.member_number || row?.username || row?.certificate_number || row?.receipt_no || row?.title || row?.name;
+  return preferred ? `${preferred}` : `row-${index}`;
+}
+function stableRecordSignature(row={}) {
+  if (!row || typeof row !== 'object') return String(row ?? '');
+  return Object.keys(row)
+    .sort()
+    .map(key => `${key}:${JSON.stringify(row[key] ?? null)}`)
+    .join('|');
+}
 function exportRowsToCsv(filename, columns=[], rows=[]) {
   if (!rows.length) return;
   const csvRows = [columns.map(col => col.label || col.key || col)];
@@ -613,6 +652,18 @@ function statusClass(value='') {
 }
 function optionRows(rows=[], labelKey='name') {
   return safeArray(rows).map(row => ({ value: row.id, label: row[labelKey] || row.full_name || row.name || row.title || row.id }));
+}
+function limitedOptionRows(rows=[], labelKey='name', search='', selectedValue='', limit=CONTACT_RESULT_LIMIT) {
+  const term = String(search || '').trim().toLowerCase();
+  const source = safeArray(rows);
+  let filtered = term
+    ? source.filter(row => compactText([row[labelKey], row.full_name, row.name, row.title, row.phone, row.email, row.member_number]).toLowerCase().includes(term))
+    : source.slice(0, limit);
+  if (selectedValue && !filtered.some(row => row.id === selectedValue)) {
+    const selected = source.find(row => row.id === selectedValue);
+    if (selected) filtered = [selected, ...filtered];
+  }
+  return filtered.slice(0, limit).map(row => ({ value: row.id, label: row[labelKey] || row.full_name || row.name || row.title || row.id }));
 }
 function nameBy(rows=[], id='', key='full_name') {
   return safeArray(rows).find(row => row.id === id)?.[key] || '';
@@ -870,18 +921,44 @@ function cleanForTable(table, row) {
   });
   return next;
 }
+async function deleteRowsInChunks(table, ids=[]) {
+  for (const batch of chunkArray(ids)) {
+    const { error } = await supabaseClient.from(table).delete().in('id', batch);
+    if (error) throw error;
+  }
+}
+async function upsertRowsInChunks(table, rows=[], options={}) {
+  for (const batch of chunkArray(rows)) {
+    const { error } = await supabaseClient.from(table).upsert(batch, options);
+    if (error) throw error;
+  }
+}
+async function fetchAllSupabaseRows(table, selectColumns='*', pageSize=1000) {
+  const rows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabaseClient
+      .from(table)
+      .select(selectColumns)
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const batch = data || [];
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+}
 async function fetchSupabaseData() {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { data: settings, error: settingsError } = await supabaseClient.from('church_settings').select('*').eq('id', 1).maybeSingle();
   if (settingsError) throw settingsError;
   const loaded = { churchSettings: settings || defaultChurch };
   if (!hasActiveSessionToken()) return normalizeData(loaded);
-  for (const [key, table] of Object.entries(TABLES)) {
+  await Promise.all(Object.entries(TABLES).map(async ([key, table]) => {
     const selectColumns = SAFE_SELECT_COLUMNS[key] || '*';
-    const { data, error } = await supabaseClient.from(table).select(selectColumns);
-    if (error) throw error;
-    loaded[key] = data || [];
-  }
+    loaded[key] = await fetchAllSupabaseRows(table, selectColumns);
+  }));
   return normalizeData(loaded);
 }
 async function syncSimpleTable(table, prevItems=[], nextItems=[]) {
@@ -890,18 +967,17 @@ async function syncSimpleTable(table, prevItems=[], nextItems=[]) {
   const prevIds = new Set(safeArray(prevItems).map(x => x.id).filter(Boolean));
   const nextIds = new Set(safeArray(nextItems).map(x => x.id).filter(Boolean));
   const deletedIds = [...prevIds].filter(id => !nextIds.has(id));
-  if (deletedIds.length) {
-    const { error } = await supabaseClient.from(table).delete().in('id', deletedIds);
-    if (error) throw error;
-  }
-  const prevById = new Map(safeArray(prevItems).map(row => [row.id, cleanForTable(table, row)]));
-  const rows = safeArray(nextItems)
-    .map(row => cleanForTable(table, row))
-    .filter(row => !row.id || JSON.stringify(prevById.get(row.id) || null) !== JSON.stringify(row));
-  if (rows.length) {
-    const { error } = await supabaseClient.from(table).upsert(rows, { onConflict: 'id' });
-    if (error) throw error;
-  }
+  if (deletedIds.length) await deleteRowsInChunks(table, deletedIds);
+  const prevById = new Map();
+  safeArray(prevItems).forEach(row => {
+    if (row?.id) prevById.set(row.id, stableRecordSignature(cleanForTable(table, row)));
+  });
+  const rows = [];
+  safeArray(nextItems).forEach(item => {
+    const row = cleanForTable(table, item);
+    if (!row.id || prevById.get(row.id) !== stableRecordSignature(row)) rows.push(row);
+  });
+  if (rows.length) await upsertRowsInChunks(table, rows, { onConflict: 'id' });
 }
 async function syncSettings(settings) {
   if (!supabaseClient) return;
@@ -1268,23 +1344,30 @@ function StatCard({ label, value, icon='chart-line', accent='teal' }) {
 function EmptyState({ text='No records available.' }) {
   return <div className="card p-8 text-center text-slate-500 font-semibold">{text}</div>;
 }
-function Table({ columns=[], rows=[], renderActions=null }) {
+function Table({ columns=[], rows=[], renderActions=null, pageSize=DEFAULT_TABLE_PAGE_SIZE, searchKeys=null, searchPlaceholder='Search records...', exportFilename='church-records.csv', title='Church Records', getSearchText=null }) {
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(1);
-  const pageSize = 12;
-  const visibleRows = React.useMemo(() => {
-    const term = search.trim().toLowerCase();
-    const base = term ? rows.filter(row => JSON.stringify(row).toLowerCase().includes(term)) : rows;
-    return base;
-  }, [rows, search]);
-  const pageCount = Math.max(1, Math.ceil(visibleRows.length / pageSize));
+  const deferredSearch = React.useDeferredValue ? React.useDeferredValue(search) : search;
+  const effectivePageSize = Math.max(1, Math.min(MAX_TABLE_PAGE_SIZE, Number(pageSize || DEFAULT_TABLE_PAGE_SIZE)));
+  const indexedRows = React.useMemo(() => safeArray(rows).map((row, index) => {
+    const extraText = getSearchText ? getSearchText(row) : '';
+    return { row, index, searchText: `${rowSearchText(row, columns, searchKeys)} ${compactText(extraText)}`.toLowerCase() };
+  }), [rows, columns, searchKeys, getSearchText]);
+  const visibleItems = React.useMemo(() => {
+    const term = String(deferredSearch || '').trim().toLowerCase();
+    return term ? indexedRows.filter(item => item.searchText.includes(term)) : indexedRows;
+  }, [indexedRows, deferredSearch]);
+  const visibleRows = React.useMemo(() => visibleItems.map(item => item.row), [visibleItems]);
+  const pageCount = Math.max(1, Math.ceil(visibleItems.length / effectivePageSize));
   React.useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
-  const pageRows = visibleRows.slice((page - 1) * pageSize, page * pageSize);
+  const pageRows = visibleItems.slice((page - 1) * effectivePageSize, page * effectivePageSize);
+  const displayStart = visibleItems.length ? ((page - 1) * effectivePageSize) + 1 : 0;
+  const displayEnd = Math.min(page * effectivePageSize, visibleItems.length);
   const cols = renderActions ? [...columns, { key: '__actions', label: 'Actions', render: renderActions }] : columns;
   return <div className="record-table-shell space-y-3">
     <div className="table-tools flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-      <input className="input sm:max-w-xs" placeholder="Search records..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
-      <div className="flex flex-wrap items-center gap-2"><button type="button" className="btn btn-outline !py-2" onClick={() => exportRowsToCsv('church-records.csv', columns, visibleRows)} disabled={!visibleRows.length}><i className="fas fa-file-csv"></i>CSV</button><button type="button" className="btn btn-outline !py-2" onClick={() => printRows('Church Records', columns, visibleRows)} disabled={!visibleRows.length}><i className="fas fa-print"></i>Print</button><div className="text-sm font-semibold text-slate-500">{visibleRows.length} record(s)</div></div>
+      <input className="input sm:max-w-xs" placeholder={searchPlaceholder} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+      <div className="flex flex-wrap items-center gap-2"><button type="button" className="btn btn-outline !py-2" onClick={() => exportRowsToCsv(exportFilename, columns, visibleRows)} disabled={!visibleRows.length}><i className="fas fa-file-csv"></i>CSV</button><button type="button" className="btn btn-outline !py-2" onClick={() => printRows(title, columns, visibleRows)} disabled={!visibleRows.length}><i className="fas fa-print"></i>Print</button><div className="text-sm font-semibold text-slate-500 whitespace-nowrap">{displayStart}-{displayEnd} of {visibleItems.length} record(s)</div></div>
     </div>
     <div className="table-wrap record-table-wrap rounded-xl border bg-white">
       <table className="record-table min-w-full text-sm">
@@ -1292,7 +1375,7 @@ function Table({ columns=[], rows=[], renderActions=null }) {
           <tr>{cols.map(col => <th key={col.key || col} className="text-left px-4 py-3 font-extrabold">{col.label || col}</th>)}</tr>
         </thead>
         <tbody>
-          {pageRows.length ? pageRows.map(row => <tr key={row.id || JSON.stringify(row)} className="border-t hover:bg-slate-50">
+          {pageRows.length ? pageRows.map(({ row, index }) => <tr key={stableRowKey(row, index)} className="border-t hover:bg-slate-50">
             {cols.map(col => {
               const key = col.key || col;
               const val = col.render ? col.render(row) : row[key];
@@ -1325,7 +1408,7 @@ function renderFormControl(field, form, setForm, data) {
   if (field.type === 'file') return <FileUploadInput value={value || ''} folder={field.folder || field.name || 'documents'} onChange={update} />;
   return <input className="input" type={field.type || 'text'} min={field.min} step={field.step} required={field.required} value={value || ''} onChange={e => update(field.type === 'number' ? e.target.value : e.target.value)} />;
 }
-function CrudManager({ title, subtitle='', collectionKey, columns, fields, emptyRecord, preparePayload, filterRows, initialPatch={} }) {
+function CrudManager({ title, subtitle='', collectionKey, columns, fields, emptyRecord, preparePayload, filterRows, initialPatch={}, searchKeys=null, searchText=null, pageSize=DEFAULT_TABLE_PAGE_SIZE }) {
   const { data, updateCollection, notify } = React.useContext(DataContext);
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState({ ...emptyRecord, ...initialPatch });
@@ -1354,7 +1437,16 @@ function CrudManager({ title, subtitle='', collectionKey, columns, fields, empty
   };
   return <div className="space-y-4">
     <SectionHeader title={title} subtitle={subtitle} actions={<button className="btn btn-primary" onClick={startAdd}><i className="fas fa-plus"></i>Add</button>} />
-    <Table columns={columns} rows={rows} renderActions={row => <div className="flex gap-2"><button className="btn btn-outline !py-1.5" onClick={() => edit(row)}>Edit</button><button className="btn btn-danger !py-1.5" onClick={() => remove(row)}>Delete</button></div>} />
+    <Table
+      columns={columns}
+      rows={rows}
+      pageSize={pageSize}
+      searchKeys={searchKeys}
+      title={title}
+      exportFilename={`${collectionKey}-${today()}.csv`}
+      getSearchText={searchText ? row => searchText(row, data) : null}
+      renderActions={row => <div className="flex gap-2"><button className="btn btn-outline !py-1.5" onClick={() => edit(row)}>Edit</button><button className="btn btn-danger !py-1.5" onClick={() => remove(row)}>Delete</button></div>}
+    />
     <Modal open={open} title={form.id ? `Edit ${title}` : `Add ${title}`} onClose={() => setOpen(false)}>
       <form onSubmit={save} className="space-y-4">
         <div className="grid md:grid-cols-2 gap-4">
@@ -1411,7 +1503,7 @@ function MembersManagement({ filterFn=null, title='Member Records' }) {
     const duplicate = d.members.find(x => x.id !== payload.id && String(x.member_number || '').toLowerCase() === String(member_number).toLowerCase());
     if (duplicate) throw new Error('A member with this member number already exists.');
     return { ...payload, member_number };
-  }} />;
+  }} searchKeys={['member_number', 'full_name', 'phone', 'email', 'membership_status', 'gender', 'marital_status', 'address']} searchText={(row, d) => `${nameBy(d.households, row.household_id, 'family_name')} ${ministryName(d, row.primary_ministry_id)}`} pageSize={30} />;
 }
 function MinistryEnrollmentManagement() {
   const { data } = React.useContext(DataContext);
@@ -1934,18 +2026,19 @@ function CredentialsManagement() {
   const emptyRecord = { id: '', role: 'member', linked_entity_id: '', username: '', password: '', force_password_change: true, account_active: true };
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState(emptyRecord);
+  const [linkedSearch, setLinkedSearch] = React.useState('');
   const isSuperAdmin = session.role === 'superadmin';
   const roleOptions = isSuperAdmin ? ALL_ROLE_OPTIONS : ROLE_OPTIONS;
-  const visibleCredentials = isSuperAdmin ? data.credentials : data.credentials.filter(row => row.role !== 'superadmin');
+  const visibleCredentials = React.useMemo(() => isSuperAdmin ? data.credentials : data.credentials.filter(row => row.role !== 'superadmin'), [data.credentials, isSuperAdmin]);
   const linkedOptions = (d, form) => {
-    if (['senior_pastor', 'pastor'].includes(form.role)) return optionRows(d.ministers, 'full_name');
-    if (form.role === 'finance_officer') return optionRows(d.financeOfficers, 'full_name');
-    if (['member', 'ministry_leader'].includes(form.role)) return optionRows(d.members, 'full_name');
+    if (['senior_pastor', 'pastor'].includes(form.role)) return limitedOptionRows(d.ministers, 'full_name', linkedSearch, form.linked_entity_id, 80);
+    if (form.role === 'finance_officer') return limitedOptionRows(d.financeOfficers, 'full_name', linkedSearch, form.linked_entity_id, 80);
+    if (['member', 'ministry_leader'].includes(form.role)) return limitedOptionRows(d.members, 'full_name', linkedSearch, form.linked_entity_id, 160);
     return [];
   };
   const linkedType = role => ['senior_pastor', 'pastor'].includes(role) ? 'minister' : role === 'finance_officer' ? 'finance_officer' : ['member', 'ministry_leader'].includes(role) ? 'member' : '';
-  const startAdd = () => { setForm(emptyRecord); setOpen(true); };
-  const edit = row => setForm({ ...emptyRecord, ...row, password: '' }) || setOpen(true);
+  const startAdd = () => { setForm(emptyRecord); setLinkedSearch(''); setOpen(true); };
+  const edit = row => { setForm({ ...emptyRecord, ...row, password: '' }); setLinkedSearch(''); setOpen(true); };
   const linkedRecordName = row => row.role === 'superadmin' ? 'Top-level maintenance' : row.role === 'admin' ? 'Church administration' : row.linked_entity_type === 'minister' ? ministerName(data, row.linked_entity_id) : row.linked_entity_type === 'finance_officer' ? nameBy(data.financeOfficers, row.linked_entity_id, 'full_name') : memberName(data, row.linked_entity_id);
   const save = async event => {
     event.preventDefault();
@@ -2000,11 +2093,12 @@ function CredentialsManagement() {
   ];
   return <div className="space-y-4">
     <SectionHeader title="Accounts and Credentials" actions={<button className="btn btn-primary" onClick={startAdd}><i className="fas fa-plus"></i>Add Account</button>} />
-    <Table columns={columns} rows={visibleCredentials} renderActions={row => <div className="flex gap-2"><button className="btn btn-outline !py-1.5" onClick={() => edit(row)}>Edit</button><button className="btn btn-danger !py-1.5" disabled={row.id === session.credentialId} onClick={() => remove(row)}>Delete</button></div>} />
+    <Table columns={columns} rows={visibleCredentials} pageSize={30} searchKeys={['role', 'username', 'linked_entity_type', 'linked_entity_id', 'account_active']} getSearchText={linkedRecordName} title="Accounts and Credentials" exportFilename={`church-accounts-${today()}.csv`} renderActions={row => <div className="flex gap-2"><button className="btn btn-outline !py-1.5" onClick={() => edit(row)}>Edit</button><button className="btn btn-danger !py-1.5" disabled={row.id === session.credentialId} onClick={() => remove(row)}>Delete</button></div>} />
     <Modal open={open} title={form.id ? 'Edit Account' : 'Add Account'} onClose={() => setOpen(false)}>
       <form onSubmit={save} className="space-y-4">
         <div className="grid md:grid-cols-2 gap-4">
-          <Field label="Role"><select className="select" value={form.role} onChange={e => setForm({ ...form, role: e.target.value, linked_entity_id: '' })}>{roleOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
+          <Field label="Role"><select className="select" value={form.role} onChange={e => { setLinkedSearch(''); setForm({ ...form, role: e.target.value, linked_entity_id: '' }); }}>{roleOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
+          {linkedType(form.role) && <Field label="Find Linked Record"><input className="input" value={linkedSearch} onChange={e => setLinkedSearch(e.target.value)} placeholder="Search by name, phone, email, or member number" /></Field>}
           <Field label="Linked Record"><select className="select" value={form.linked_entity_id || ''} onChange={e => setForm({ ...form, linked_entity_id: e.target.value })}><option value="">None</option>{linkedOptions(data, form).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
           <Field label="Username"><input className="input" value={form.username || ''} onChange={e => setForm({ ...form, username: e.target.value })} required /></Field>
           <Field label={form.id ? 'New Password' : 'Password'}><input className="input" type="password" value={form.password || ''} minLength={form.id ? undefined : 8} placeholder={form.id ? 'Leave blank to keep current password' : ''} onChange={e => setForm({ ...form, password: e.target.value })} required={!form.id} /></Field>
@@ -2064,6 +2158,7 @@ function SettingsManager() {
 function ChatManagement({ role, linkedId }) {
   const { data, updateCollection } = React.useContext(DataContext);
   const [receiver, setReceiver] = React.useState('');
+  const [contactSearch, setContactSearch] = React.useState('');
   const [message, setMessage] = React.useState('');
   const [actionMessageId, setActionMessageId] = React.useState('');
   const [editingMessageId, setEditingMessageId] = React.useState('');
@@ -2081,18 +2176,41 @@ function ChatManagement({ role, linkedId }) {
   }, [clearHoldTimer, isOwnMessage]);
   React.useEffect(() => clearHoldTimer, [clearHoldTimer]);
   const contacts = React.useMemo(() => {
-    const list = [];
+    const term = contactSearch.trim().toLowerCase();
+    const matches = contact => !term || compactText([contact.label, contact.role]).toLowerCase().includes(term);
+    const contactValue = contact => `${contact.role}|${contact.id || ''}`;
+    let list = [];
+    const staffContacts = [
+      ...safeArray(data.ministers).map(x => ({ role: x.title?.toLowerCase().includes('senior') ? 'senior_pastor' : 'pastor', id: x.id, label: `${x.full_name} (${x.title})` })),
+      ...safeArray(data.financeOfficers).map(x => ({ role: 'finance_officer', id: x.id, label: `${x.full_name} (Finance)` }))
+    ].filter(matches);
     if (role !== 'member') {
-      data.ministers.forEach(x => list.push({ role: x.title?.toLowerCase().includes('senior') ? 'senior_pastor' : 'pastor', id: x.id, label: `${x.full_name} (${x.title})` }));
-      data.financeOfficers.forEach(x => list.push({ role: 'finance_officer', id: x.id, label: `${x.full_name} (Finance)` }));
-      data.members.forEach(x => list.push({ role: x.id === linkedId ? 'member' : 'member', id: x.id, label: `${x.full_name} (Member)` }));
+      const members = safeArray(data.members)
+        .map(x => ({ role: 'member', id: x.id, label: `${x.full_name} (Member)` }))
+        .filter(matches)
+        .slice(0, CONTACT_RESULT_LIMIT);
+      list = [...staffContacts, ...members];
     } else {
-      data.ministers.forEach(x => list.push({ role: x.title?.toLowerCase().includes('senior') ? 'senior_pastor' : 'pastor', id: x.id, label: `${x.full_name} (${x.title})` }));
-      data.members.filter(x => x.id !== linkedId).slice(0, 20).forEach(x => list.push({ role: 'member', id: x.id, label: `${x.full_name} (Member)` }));
+      const members = safeArray(data.members)
+        .filter(x => x.id !== linkedId)
+        .map(x => ({ role: 'member', id: x.id, label: `${x.full_name} (Member)` }))
+        .filter(matches)
+        .slice(0, 30);
+      list = [...staffContacts, ...members];
     }
-    return list.filter(x => !(x.role === role && x.id === linkedId));
-  }, [data, role, linkedId]);
-  const messages = data.chats.filter(msg => {
+    list = list.filter(x => !(x.role === role && x.id === linkedId));
+    if (receiver && !list.some(contact => contactValue(contact) === receiver)) {
+      const [selectedRole, selectedId] = receiver.split('|');
+      const selected = [
+        ...safeArray(data.ministers).map(x => ({ role: x.title?.toLowerCase().includes('senior') ? 'senior_pastor' : 'pastor', id: x.id, label: `${x.full_name} (${x.title})` })),
+        ...safeArray(data.financeOfficers).map(x => ({ role: 'finance_officer', id: x.id, label: `${x.full_name} (Finance)` })),
+        ...safeArray(data.members).map(x => ({ role: 'member', id: x.id, label: `${x.full_name} (Member)` }))
+      ].find(contact => contact.role === selectedRole && String(contact.id || '') === selectedId);
+      if (selected) list = [selected, ...list];
+    }
+    return list;
+  }, [data.ministers, data.financeOfficers, data.members, role, linkedId, receiver, contactSearch]);
+  const messages = React.useMemo(() => data.chats.filter(msg => {
     const mineSender = msg.sender_role === role && (role === 'admin' ? !msg.sender_id : msg.sender_id === linkedId);
     const mineReceiver = msg.receiver_role === role && (role === 'admin' ? !msg.receiver_id : msg.receiver_id === linkedId);
     if (!mineSender && !mineReceiver) return false;
@@ -2101,7 +2219,7 @@ function ChatManagement({ role, linkedId }) {
     if (!receiver) return true;
     const [rRole, rId] = receiver.split('|');
     return (mineSender && msg.receiver_role === rRole && String(msg.receiver_id || '') === rId) || (mineReceiver && msg.sender_role === rRole && String(msg.sender_id || '') === rId);
-  }).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+  }).sort((a,b) => new Date(a.created_at) - new Date(b.created_at)), [data.chats, role, linkedId, receiver]);
   const send = async e => {
     e.preventDefault();
     if (!receiver || !message.trim()) return;
@@ -2138,6 +2256,7 @@ function ChatManagement({ role, linkedId }) {
     <SectionHeader title="Church Chat" />
     <div className="grid lg:grid-cols-[320px,1fr] gap-4">
       <div className="card p-4 space-y-3">
+        <Field label="Find Contact"><input className="input" value={contactSearch} onChange={e => setContactSearch(e.target.value)} placeholder="Search contacts" /></Field>
         <Field label="Recipient"><select className="select" value={receiver} onChange={e => setReceiver(e.target.value)}><option value="">All conversations</option>{contacts.map(c => <option key={`${c.role}|${c.id}`} value={`${c.role}|${c.id}`}>{c.label}</option>)}</select></Field>
         <form onSubmit={send} className="space-y-3"><textarea className="textarea" value={message} onChange={e => setMessage(e.target.value)} placeholder="Write message..."></textarea><button className="btn btn-primary w-full"><i className="fas fa-paper-plane"></i>Send</button></form>
       </div>
