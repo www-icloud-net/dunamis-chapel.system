@@ -204,6 +204,7 @@ function canSyncChurchSettings() {
 }
 const offlineStore = localforage.createInstance({ name: 'church_mgmt_final_v1' });
 const DATA_KEY = 'church_management_data_v1';
+const PENDING_CHANGES_KEY = 'church_management_pending_changes_v1';
 const SESSION_KEY = 'church_management_session_v1';
 
 const ROLE_LABELS = {
@@ -408,6 +409,7 @@ const DEFAULT_TABLE_PAGE_SIZE = 25;
 const MAX_TABLE_PAGE_SIZE = 100;
 const SYNC_BATCH_SIZE = 450;
 const CONTACT_RESULT_LIMIT = 120;
+const PRESENCE_SYSTEM_ID = '00000000-0000-0000-0000-000000000000';
 const EMPTY_TO_NULL_FIELDS = {
   church_ministries: ['leader_member_id', 'leader_minister_id'],
   church_members: ['dob', 'household_id', 'primary_ministry_id', 'joined_date', 'baptism_date'],
@@ -435,6 +437,19 @@ const NUMBER_FIELDS = new Set(['expected_attendance', 'budget', 'amount', 'pledg
 const SAFE_SELECT_COLUMNS = {
   credentials: 'id,role,linked_entity_type,linked_entity_id,username,force_password_change,account_active,is_system_default,created_at,updated_at'
 };
+const ROLE_SYNC_COLLECTIONS = {
+  superadmin: COLLECTION_KEYS,
+  admin: COLLECTION_KEYS,
+  senior_pastor: ['members', 'memberMinistries', 'services', 'attendance', 'visitors', 'careRequests', 'pastoralVisits', 'events', 'eventRegistrations', 'volunteerSchedules', 'certificates', 'documents', 'welfareRecords', 'announcements', 'reminders', 'chats', 'presenceRows'],
+  pastor: ['members', 'attendance', 'visitors', 'careRequests', 'pastoralVisits', 'events', 'eventRegistrations', 'certificates', 'announcements', 'reminders', 'chats', 'presenceRows'],
+  finance_officer: ['members', 'funds', 'giving', 'pledges', 'expenses', 'chats', 'presenceRows'],
+  ministry_leader: ['members', 'memberMinistries', 'events', 'eventRegistrations', 'volunteerSchedules', 'announcements', 'chats', 'presenceRows'],
+  member: ['members', 'careRequests', 'eventRegistrations', 'pledges', 'chats', 'presenceRows']
+};
+function canSyncCollectionKey(key) {
+  if (key === 'credentials') return false;
+  return safeArray(ROLE_SYNC_COLLECTIONS[activeSessionRole]).includes(key);
+}
 const ID = {
   minister1: '00000000-0000-4000-8000-000000000101',
   minister2: '00000000-0000-4000-8000-000000000102',
@@ -667,6 +682,21 @@ function limitedOptionRows(rows=[], labelKey='name', search='', selectedValue=''
 }
 function nameBy(rows=[], id='', key='full_name') {
   return safeArray(rows).find(row => row.id === id)?.[key] || '';
+}
+function presenceEntityId(linkedId='') {
+  return linkedId || PRESENCE_SYSTEM_ID;
+}
+function presenceKey(role='', linkedId='') {
+  return `${role || ''}|${presenceEntityId(linkedId)}`;
+}
+function isPresenceOnline(row) {
+  if (!row?.online) return false;
+  const lastSeen = row.last_seen ? new Date(row.last_seen).getTime() : 0;
+  if (!lastSeen || Number.isNaN(lastSeen)) return false;
+  return Date.now() - lastSeen < 3 * 60 * 1000;
+}
+function getPresenceStatus(data, role='', linkedId='') {
+  return data?.presence?.[presenceKey(role, linkedId)] || null;
 }
 function memberName(data, id) { return nameBy(data.members, id, 'full_name') || 'Unassigned'; }
 function ministerName(data, id) { return nameBy(data.ministers, id, 'full_name') || 'Unassigned'; }
@@ -906,7 +936,7 @@ function normalizeData(raw={}) {
   COLLECTION_KEYS.forEach(key => { merged[key] = safeArray(raw[key]); });
   merged.presence = {};
   safeArray(merged.presenceRows).forEach(row => {
-    const key = row.role;
+    const key = presenceKey(row.role, row.linked_entity_id);
     merged.presence[key] = { online: !!row.is_online, last_seen: row.last_seen };
   });
   return merged;
@@ -915,11 +945,27 @@ function cleanForTable(table, row) {
   const next = { ...row };
   if (table === 'church_pledges') delete next.balance;
   delete next.presence;
+  if (table === 'church_presence_status' && !next.linked_entity_id) next.linked_entity_id = PRESENCE_SYSTEM_ID;
   safeArray(EMPTY_TO_NULL_FIELDS[table]).forEach(field => {
     if (next[field] === '') next[field] = NUMBER_FIELDS.has(field) ? 0 : null;
     if (NUMBER_FIELDS.has(field) && next[field] !== null && next[field] !== undefined) next[field] = Number(next[field] || 0);
   });
   return next;
+}
+function buildSyncDelta(table, prevItems=[], nextItems=[]) {
+  const prevIds = new Set(safeArray(prevItems).map(x => x.id).filter(Boolean));
+  const nextIds = new Set(safeArray(nextItems).map(x => x.id).filter(Boolean));
+  const deletedIds = [...prevIds].filter(id => !nextIds.has(id));
+  const prevById = new Map();
+  safeArray(prevItems).forEach(row => {
+    if (row?.id) prevById.set(row.id, stableRecordSignature(cleanForTable(table, row)));
+  });
+  const rows = [];
+  safeArray(nextItems).forEach(item => {
+    const row = cleanForTable(table, item);
+    if (!row.id || prevById.get(row.id) !== stableRecordSignature(row)) rows.push(row);
+  });
+  return { deletedIds, rows };
 }
 async function deleteRowsInChunks(table, ids=[]) {
   for (const batch of chunkArray(ids)) {
@@ -932,6 +978,10 @@ async function upsertRowsInChunks(table, rows=[], options={}) {
     const { error } = await supabaseClient.from(table).upsert(batch, options);
     if (error) throw error;
   }
+}
+async function applySyncDelta(table, delta={}) {
+  if (safeArray(delta.deletedIds).length) await deleteRowsInChunks(table, delta.deletedIds);
+  if (safeArray(delta.rows).length) await upsertRowsInChunks(table, delta.rows, { onConflict: 'id' });
 }
 async function fetchAllSupabaseRows(table, selectColumns='*', pageSize=1000) {
   const rows = [];
@@ -964,20 +1014,7 @@ async function fetchSupabaseData() {
 async function syncSimpleTable(table, prevItems=[], nextItems=[]) {
   if (!supabaseClient) return;
   if (table === TABLES.credentials) throw new Error('Credentials must be changed from the secure Accounts screen.');
-  const prevIds = new Set(safeArray(prevItems).map(x => x.id).filter(Boolean));
-  const nextIds = new Set(safeArray(nextItems).map(x => x.id).filter(Boolean));
-  const deletedIds = [...prevIds].filter(id => !nextIds.has(id));
-  if (deletedIds.length) await deleteRowsInChunks(table, deletedIds);
-  const prevById = new Map();
-  safeArray(prevItems).forEach(row => {
-    if (row?.id) prevById.set(row.id, stableRecordSignature(cleanForTable(table, row)));
-  });
-  const rows = [];
-  safeArray(nextItems).forEach(item => {
-    const row = cleanForTable(table, item);
-    if (!row.id || prevById.get(row.id) !== stableRecordSignature(row)) rows.push(row);
-  });
-  if (rows.length) await upsertRowsInChunks(table, rows, { onConflict: 'id' });
+  await applySyncDelta(table, buildSyncDelta(table, prevItems, nextItems));
 }
 async function syncSettings(settings) {
   if (!supabaseClient) return;
@@ -990,11 +1027,34 @@ async function syncAll(data) {
   if (canSyncChurchSettings()) await syncSettings(data.churchSettings);
   for (const key of COLLECTION_KEYS) {
     if (key === 'credentials') continue;
+    if (!canSyncCollectionKey(key)) continue;
     await syncSimpleTable(TABLES[key], [], data[key]);
   }
 }
 async function persistOffline(data) {
   await offlineStore.setItem(DATA_KEY, clone(data));
+}
+async function loadPendingChanges() {
+  return safeArray(await offlineStore.getItem(PENDING_CHANGES_KEY));
+}
+async function savePendingChanges(changes=[]) {
+  await offlineStore.setItem(PENDING_CHANGES_KEY, safeArray(changes));
+}
+async function appendPendingCollectionChange(key, prevItems=[], nextItems=[]) {
+  const table = TABLES[key];
+  if (!table) return [];
+  const delta = buildSyncDelta(table, prevItems, nextItems);
+  if (!safeArray(delta.deletedIds).length && !safeArray(delta.rows).length) return loadPendingChanges();
+  const current = await loadPendingChanges();
+  const next = [...current, { id: uid(), kind: 'collection', key, table, delta, created_at: nowIso() }].slice(-600);
+  await savePendingChanges(next);
+  return next;
+}
+async function appendPendingSettingsChange(settings={}) {
+  const current = await loadPendingChanges();
+  const next = [...current.filter(change => change.kind !== 'settings'), { id: uid(), kind: 'settings', settings: ensureDailyVerseSettings({ ...settings, id: 1 }), created_at: nowIso() }].slice(-600);
+  await savePendingChanges(next);
+  return next;
 }
 async function loadOffline() {
   return normalizeData((await offlineStore.getItem(DATA_KEY)) || defaultData());
@@ -1009,6 +1069,9 @@ function DataProvider({ children }) {
   const [busyText, setBusyText] = React.useState('');
   const [notifications, setNotifications] = React.useState([]);
   const [offlineState, setOfflineState] = React.useState({ mode: supabaseClient ? 'syncing' : 'offline', pendingCount: 0, lastSyncAt: '', lastError: '' });
+  const offlineStateRef = React.useRef(offlineState);
+  const syncInProgressRef = React.useRef(false);
+  const flushPendingRef = React.useRef(null);
 
   const notify = React.useCallback((type, message) => {
     const id = uid();
@@ -1016,6 +1079,7 @@ function DataProvider({ children }) {
     setTimeout(() => setNotifications(list => list.filter(item => item.id !== id)), 5200);
   }, []);
   const dismissNotification = id => setNotifications(list => list.filter(item => item.id !== id));
+  React.useEffect(() => { offlineStateRef.current = offlineState; }, [offlineState]);
 
   const reloadData = React.useCallback(async ({ silent=false } = {}) => {
     if (!silent) setBusyText('Loading church records...');
@@ -1023,12 +1087,14 @@ function DataProvider({ children }) {
       const remote = await fetchSupabaseData();
       setData(remote);
       await persistOffline(remote);
-      setOfflineState(state => ({ ...state, mode: 'online', lastSyncAt: nowIso(), lastError: '' }));
+      const pending = await loadPendingChanges();
+      setOfflineState(state => ({ ...state, mode: 'online', pendingCount: pending.length, lastSyncAt: nowIso(), lastError: '' }));
       return true;
     } catch (error) {
       const offline = await loadOffline();
       setData(offline);
-      setOfflineState(state => ({ ...state, mode: 'offline', lastError: error?.message || 'Offline data loaded.' }));
+      const pending = await loadPendingChanges();
+      setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: pending.length, lastError: error?.message || 'Offline data loaded.' }));
       if (!silent) notify('info', 'Local church records loaded.');
       return false;
     } finally {
@@ -1061,11 +1127,13 @@ function DataProvider({ children }) {
     await persistOffline(nextData);
     if (!options.suppressBusy) setBusyText(options.busyText || 'Saving record...');
     try {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Internet connection lost. Using offline mode.');
       await syncSimpleTable(TABLES[key], prevItems, nextItems);
       setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
       if (!options.silentSuccess) notify('success', options.successMessage || 'Record saved successfully.');
     } catch (error) {
-      setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: state.pendingCount + 1, lastError: error?.message || 'Sync failed.' }));
+      const pending = await appendPendingCollectionChange(key, prevItems, nextItems);
+      setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: pending.length, lastError: error?.message || 'Sync failed.' }));
       notify('info', options.offlineMessage || 'Saved locally. Sync is pending.');
     } finally {
       setBusyText('');
@@ -1079,11 +1147,13 @@ function DataProvider({ children }) {
     await persistOffline(nextData);
     setBusyText('Saving church settings...');
     try {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Internet connection lost. Using offline mode.');
       await syncSettings(nextData.churchSettings);
       setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
       notify('success', 'Church settings saved successfully.');
     } catch (error) {
-      setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: state.pendingCount + 1, lastError: error?.message || 'Sync failed.' }));
+      const pending = await appendPendingSettingsChange(nextData.churchSettings);
+      setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: pending.length, lastError: error?.message || 'Sync failed.' }));
       notify('info', 'Settings saved locally. Sync is pending.');
     } finally {
       setBusyText('');
@@ -1091,30 +1161,72 @@ function DataProvider({ children }) {
   }, [data, notify]);
 
   const flushPendingChanges = React.useCallback(async () => {
+    if (syncInProgressRef.current) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setOfflineState(state => ({ ...state, mode: 'offline', lastError: 'Internet connection lost. Using offline mode.' }));
+      return;
+    }
+    syncInProgressRef.current = true;
     setBusyText('Syncing pending church records...');
     try {
-      if (!canSyncChurchSettings()) {
-        await reloadData({ silent: true });
-        setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', pendingCount: 0, lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
-        notify('success', 'Records refreshed. Settings changes require an administrator account.');
-        return;
+      const pending = await loadPendingChanges();
+      const remaining = [];
+      for (const change of pending) {
+        if (change.kind === 'settings') {
+          if (!canSyncChurchSettings()) {
+            remaining.push(change);
+            continue;
+          }
+          await syncSettings(change.settings);
+          continue;
+        }
+        if (change.kind === 'collection') {
+          if (!canSyncCollectionKey(change.key)) {
+            remaining.push(change);
+            continue;
+          }
+          await applySyncDelta(change.table || TABLES[change.key], change.delta || {});
+        }
       }
-      await syncAll(data);
-      setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', pendingCount: 0, lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: '' }));
-      notify('success', 'Pending records synced successfully.');
+      await savePendingChanges(remaining);
+      if (!remaining.length) await syncAll(data);
+      setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', pendingCount: remaining.length, lastSyncAt: supabaseClient ? nowIso() : state.lastSyncAt, lastError: remaining.length ? 'Some pending changes need a permitted account to sync.' : '' }));
+      notify(remaining.length ? 'info' : 'success', remaining.length ? 'Some changes are still pending for an authorized account.' : 'Pending records synced successfully.');
     } catch (error) {
-      setOfflineState(state => ({ ...state, mode: 'offline', lastError: error?.message || 'Sync failed.' }));
+      const pending = await loadPendingChanges();
+      setOfflineState(state => ({ ...state, mode: 'offline', pendingCount: pending.length, lastError: error?.message || 'Sync failed.' }));
       notify('error', error?.message || 'Sync failed.');
     } finally {
       setBusyText('');
+      syncInProgressRef.current = false;
     }
   }, [data, notify, reloadData]);
+  React.useEffect(() => { flushPendingRef.current = flushPendingChanges; }, [flushPendingChanges]);
+  React.useEffect(() => {
+    const handleOnline = () => {
+      setOfflineState(state => ({ ...state, mode: supabaseClient ? 'online' : 'offline', lastError: '' }));
+      window.setTimeout(() => flushPendingRef.current?.(), 1200);
+    };
+    const handleOffline = () => setOfflineState(state => ({ ...state, mode: 'offline', lastError: 'Internet connection lost. Using offline mode.' }));
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    const timer = window.setInterval(() => {
+      const state = offlineStateRef.current;
+      if (state.pendingCount && typeof navigator !== 'undefined' && navigator.onLine !== false) flushPendingRef.current?.();
+    }, 30000);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const setPresenceStatus = React.useCallback(async (role, linkedId, isOnline) => {
-    if (!role || !linkedId) return;
+    if (!role) return;
+    const entityId = presenceEntityId(linkedId);
     await updateCollection('presenceRows', rows => {
-      const idx = safeArray(rows).findIndex(row => row.role === role && row.linked_entity_id === linkedId);
-      const payload = { id: idx >= 0 ? rows[idx].id : uid(), role, linked_entity_id: linkedId, is_online: !!isOnline, last_seen: nowIso() };
+      const idx = safeArray(rows).findIndex(row => row.role === role && presenceEntityId(row.linked_entity_id) === entityId);
+      const payload = { id: idx >= 0 ? rows[idx].id : uid(), role, linked_entity_id: entityId, is_online: !!isOnline, last_seen: nowIso() };
       return idx >= 0 ? rows.map((row, i) => i === idx ? { ...row, ...payload } : row) : [payload, ...rows];
     }, { silentSuccess: true, suppressBusy: true });
   }, [updateCollection]);
@@ -2089,7 +2201,8 @@ function CredentialsManagement() {
     { key: 'linked_entity_id', label: 'Linked Record', render: linkedRecordName },
     { key: 'username', label: 'Username' },
     { key: 'force_password_change', label: 'Force Change', render: r => boolValue(r.force_password_change) ? 'Yes' : 'No' },
-    { key: 'account_active', label: 'Account', render: r => <span className={`pill ${r.account_active ? 'active' : 'inactive'}`}>{r.account_active ? 'Active' : 'Inactive'}</span> }
+    { key: 'account_active', label: 'Account', render: r => <span className={`pill ${r.account_active ? 'active' : 'inactive'}`}>{r.account_active ? 'Active' : 'Inactive'}</span> },
+    { key: 'live_status', label: 'Live', render: r => <PresenceBadge role={r.role} linkedId={r.linked_entity_id} compact /> }
   ];
   return <div className="space-y-4">
     <SectionHeader title="Accounts and Credentials" actions={<button className="btn btn-primary" onClick={startAdd}><i className="fas fa-plus"></i>Add Account</button>} />
@@ -2368,6 +2481,19 @@ function AppShell() {
       }).catch(() => {});
     } catch (e) {}
   }, [store.loaded]);
+  React.useEffect(() => {
+    if (!session.role) return;
+    let cancelled = false;
+    const markOnline = () => {
+      if (!cancelled) store.setPresenceStatus(session.role, session.linkedId, true).catch(() => {});
+    };
+    markOnline();
+    const timer = window.setInterval(markOnline, 60000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [session.role, session.linkedId, store.setPresenceStatus]);
   const loginWithCredentials = async (username, password) => {
     const lower = String(username || '').trim().toLowerCase();
     const client = publicSupabaseClient || supabaseClient;
@@ -2432,11 +2558,23 @@ function AppShell() {
         <main className="flex-1 p-3 md:p-6 overflow-x-hidden">{!session.role ? <LoginScreen /> : <DashboardRouter />}</main>
       </div>
       <AppFooter />
-      {session.role && session.role !== 'superadmin' && !isWholeChurchPortalRestricted(session.role, store.data.churchSettings) && <ForcePasswordChangeModal />}
+      {session.role && !isWholeChurchPortalRestricted(session.role, store.data.churchSettings) && <ForcePasswordChangeModal />}
       <BusyOverlay text={store.busyText} />
       <ToastStack notifications={store.notifications} onDismiss={store.dismissNotification} />
     </div>
   </SessionContext.Provider>;
+}
+function PresenceBadge({ role, linkedId, compact=false }) {
+  const { data } = React.useContext(DataContext);
+  const [, setTick] = React.useState(0);
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setTick(value => value + 1), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const online = isPresenceOnline(getPresenceStatus(data, role, linkedId));
+  return <span className={`pill ${online ? 'active' : 'inactive'}`} title={online ? 'Online' : 'Offline'}>
+    <i className="fas fa-circle"></i>{compact ? (online ? 'Online' : 'Offline') : (online ? 'Online Now' : 'Offline')}
+  </span>;
 }
 function Header() {
   const { data, reloadData } = React.useContext(DataContext);
@@ -2449,6 +2587,7 @@ function Header() {
     </div>
     <div className="flex items-center gap-2 shrink-0">
       {session.role && <span className="pill neutral hidden sm:inline-flex"><i className="fas fa-user-shield"></i>{ROLE_LABELS[session.role]}</span>}
+      {session.role && <PresenceBadge role={session.role} linkedId={session.linkedId} compact />}
       {session.role && <button className="btn btn-outline" onClick={() => reloadData({ silent: false })}><i className="fas fa-rotate"></i><span className="hidden md:inline">Refresh</span></button>}
     </div>
   </header>;
