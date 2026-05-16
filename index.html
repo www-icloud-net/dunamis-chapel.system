@@ -89,6 +89,66 @@
       .toast { min-width: 0; max-width: none; }
       .btn { padding: .58rem .82rem; }
     }
+    @media (max-width: 900px) {
+      body { font-size: 14px; background-attachment: scroll; }
+      .sticky-header { min-height: 64px; padding: .55rem .75rem !important; gap: .6rem !important; box-shadow: 0 8px 18px rgba(15,23,42,.08); }
+      .sticky-header img, .sticky-header .w-12.h-12 { width: 2.55rem !important; height: 2.55rem !important; border-radius: .8rem !important; }
+      .sticky-header h1 { font-size: clamp(1rem, 3.7vw, 1.32rem) !important; line-height: 1.08 !important; }
+      .sticky-header p { font-size: .72rem !important; line-height: 1.25 !important; max-width: min(58vw, 34rem); }
+      .sticky-header .btn, .sticky-header > div:first-child > button { min-width: 2.35rem !important; width: 2.35rem !important; height: 2.35rem !important; min-height: 2.35rem !important; padding: .45rem !important; border-radius: .75rem !important; flex: 0 0 2.35rem; }
+      main.flex-1 { padding: .85rem !important; }
+      main.flex-1 > div { max-width: 100%; }
+      main.flex-1 h2 { font-size: clamp(1.25rem, 4vw, 1.65rem) !important; line-height: 1.15 !important; }
+      .card { border-radius: .85rem; box-shadow: 0 6px 18px rgba(15,23,42,.055); }
+      .card.p-5 { padding: .95rem !important; }
+      .card.p-4 { padding: .85rem !important; }
+      .card.p-8 { padding: 1rem !important; }
+      .grid-fit { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; }
+      .input, .select, .textarea { border-radius: .7rem; padding: .58rem .68rem; font-size: .95rem; }
+      .textarea { min-height: 78px; }
+      .btn { min-height: 36px; padding: .5rem .72rem; border-radius: .7rem; font-size: .9rem; }
+      .icon-modern { width: 2.55rem !important; height: 2.55rem !important; flex-basis: 2.55rem !important; border-radius: .78rem; }
+      .nav-icon-chip { width: 2.1rem; height: 2.1rem; flex-basis: 2.1rem; border-radius: .72rem; }
+      .table-tools { gap: .55rem !important; }
+      .table-tools .btn { min-height: 34px; padding: .43rem .58rem !important; }
+      .record-table { font-size: .84rem !important; }
+      .record-table th, .record-table td { padding: .58rem .65rem !important; }
+      .table-pagination { gap: .45rem !important; }
+      .table-pagination .btn { min-width: 4.1rem; min-height: 34px; padding: .42rem .62rem !important; }
+      .system-footer { padding: .85rem 1rem !important; font-size: .8rem; }
+    }
+    @media (max-width: 700px) {
+      body { font-size: 13px; }
+      .sticky-header { min-height: 58px; padding: .45rem .6rem !important; }
+      .sticky-header img, .sticky-header .w-12.h-12 { width: 2.25rem !important; height: 2.25rem !important; }
+      .sticky-header h1 { font-size: clamp(.95rem, 4.4vw, 1.12rem) !important; }
+      .sticky-header p { font-size: .66rem !important; max-width: 48vw; }
+      .sticky-header .btn, .sticky-header > div:first-child > button { min-width: 2.12rem !important; width: 2.12rem !important; height: 2.12rem !important; min-height: 2.12rem !important; border-radius: .68rem !important; }
+      main.flex-1 { padding: .65rem !important; }
+      main.flex-1 h2 { font-size: 1.22rem !important; }
+      .grid-fit { grid-template-columns: 1fr !important; gap: .62rem; }
+      .card.p-5, .card.p-4 { padding: .78rem !important; }
+      .btn { min-height: 34px; padding: .46rem .64rem; font-size: .86rem; }
+      .input, .select, .textarea { font-size: .9rem; padding: .54rem .62rem; }
+      .table-tools > div { width: 100%; gap: .45rem !important; }
+      .table-tools > div .text-sm { margin-left: auto; font-size: .76rem !important; }
+      .record-table-wrap { border: 0 !important; background: transparent !important; overflow: visible !important; }
+      .record-table, .record-table thead, .record-table tbody, .record-table tr, .record-table td { display: block; width: 100%; min-width: 0 !important; }
+      .record-table thead { display: none; }
+      .record-table tr { border: 1px solid #e5e7eb !important; border-radius: .85rem; margin-bottom: .65rem; padding: .5rem; background: #fff; box-shadow: 0 5px 14px rgba(15,23,42,.045); }
+      .record-table td { border: 0 !important; display: grid; grid-template-columns: minmax(5.9rem, 34%) minmax(0, 1fr); gap: .7rem; align-items: start; padding: .42rem .3rem !important; white-space: normal !important; font-size: .86rem; }
+      .record-table td::before { content: attr(data-label); color: #64748b; font-size: .68rem; line-height: 1.25; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+      .record-table td[colspan] { display: block; text-align: center; color: #64748b; }
+      .record-table td[colspan]::before { content: ""; display: none; }
+      .record-table td[data-label="Actions"] { display: block; }
+      .record-table td[data-label="Actions"]::before { display: block; margin-bottom: .35rem; }
+      .table-pagination { justify-content: center !important; }
+      .system-footer { padding: .75rem .85rem !important; }
+    }
+    @media (min-width: 701px) and (max-width: 900px) {
+      .record-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .record-table { min-width: 680px; }
+    }
   </style>
 </head>
 <body class="text-slate-800 antialiased">
@@ -1042,13 +1102,13 @@ function Table({ columns=[], rows=[], renderActions=null }) {
   React.useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
   const pageRows = visibleRows.slice((page - 1) * pageSize, page * pageSize);
   const cols = renderActions ? [...columns, { key: '__actions', label: 'Actions', render: renderActions }] : columns;
-  return <div className="space-y-3">
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+  return <div className="record-table-shell space-y-3">
+    <div className="table-tools flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
       <input className="input sm:max-w-xs" placeholder="Search records..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
       <div className="flex flex-wrap items-center gap-2"><button type="button" className="btn btn-outline !py-2" onClick={() => exportRowsToCsv('church-records.csv', columns, visibleRows)} disabled={!visibleRows.length}><i className="fas fa-file-csv"></i>CSV</button><button type="button" className="btn btn-outline !py-2" onClick={() => printRows('Church Records', columns, visibleRows)} disabled={!visibleRows.length}><i className="fas fa-print"></i>Print</button><div className="text-sm font-semibold text-slate-500">{visibleRows.length} record(s)</div></div>
     </div>
-    <div className="table-wrap rounded-xl border bg-white">
-      <table className="min-w-full text-sm">
+    <div className="table-wrap record-table-wrap rounded-xl border bg-white">
+      <table className="record-table min-w-full text-sm">
         <thead className="bg-slate-50 text-slate-600">
           <tr>{cols.map(col => <th key={col.key || col} className="text-left px-4 py-3 font-extrabold">{col.label || col}</th>)}</tr>
         </thead>
@@ -1057,13 +1117,13 @@ function Table({ columns=[], rows=[], renderActions=null }) {
             {cols.map(col => {
               const key = col.key || col;
               const val = col.render ? col.render(row) : row[key];
-              return <td key={key} className="px-4 py-3 align-top">{React.isValidElement(val) ? val : <span className="cell-wrap">{val ?? ''}</span>}</td>;
+              return <td key={key} data-label={col.label || key} className="px-4 py-3 align-top">{React.isValidElement(val) ? val : <span className="cell-wrap">{val ?? ''}</span>}</td>;
             })}
           </tr>) : <tr><td className="px-4 py-8 text-center text-slate-500" colSpan={cols.length}>No matching records.</td></tr>}
         </tbody>
       </table>
     </div>
-    <div className="flex justify-end gap-2">
+    <div className="table-pagination flex justify-end gap-2">
       <button className="btn btn-outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</button>
       <span className="btn btn-secondary">{page} / {pageCount}</span>
       <button className="btn btn-outline" disabled={page >= pageCount} onClick={() => setPage(p => Math.min(pageCount, p + 1))}>Next</button>
