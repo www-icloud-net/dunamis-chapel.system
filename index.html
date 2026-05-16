@@ -215,7 +215,16 @@ const ROLE_LABELS = {
   finance_officer: 'Finance Officer',
   member: 'Member'
 };
+const ALL_ROLE_OPTIONS = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }));
 const ROLE_OPTIONS = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label })).filter(x => x.value !== 'superadmin');
+const LICENSE_PLAN_OPTIONS = {
+  fourMonths: { label: '4 Months License', months: 4, code: '4M' },
+  oneYear: { label: '1 Year License', months: 12, code: '1Y' },
+  twoYears: { label: '2 Years License', months: 24, code: '2Y' },
+  threeYears: { label: '3 Years License', months: 36, code: '3Y' },
+  fiveYears: { label: '5 Years License', months: 60, code: '5Y' },
+  unlimited: { label: 'Unlimited License Use', months: null, code: 'UNL' }
+};
 const GENDERS = ['Male', 'Female'];
 const MEMBER_STATUSES = ['Active', 'New Convert', 'Visitor', 'Inactive', 'Transferred', 'Deceased'];
 const MARITAL_STATUSES = ['Single', 'Married', 'Widowed', 'Divorced'];
@@ -466,7 +475,15 @@ const defaultChurch = {
   logout_greeting_message: 'Goodbye. Grace and peace.',
   failed_login_greeting_message: 'Login failed. Please verify your church account details.',
   platform_access_locked: false,
-  admin_access_locked: false
+  admin_access_locked: false,
+  church_license_plan: '',
+  church_license_label: 'No license issued',
+  church_license_code: '',
+  church_license_status: 'Not Issued',
+  church_license_issued_at: '',
+  church_license_activated_at: '',
+  church_license_expires_at: '',
+  church_license_last_checked_at: ''
 };
 
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -476,6 +493,86 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function safeArray(value) { return Array.isArray(value) ? value : []; }
 function boolValue(value) { return value === true || value === 'true' || value === 'Yes'; }
 function money(value) { return `GHS ${Number(value || 0).toFixed(2)}`; }
+function addMonthsToDate(startDate, months) {
+  const date = new Date(startDate || new Date());
+  const day = date.getDate();
+  date.setMonth(date.getMonth() + Number(months || 0));
+  if (date.getDate() < day) date.setDate(0);
+  return date;
+}
+function isoDateOnly(dateValue) {
+  if (!dateValue) return '';
+  const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+function formatReadableDate(value) {
+  if (!value) return 'Not set';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+function calculateLicenseExpiryDate(planKey, startDate=new Date()) {
+  const plan = LICENSE_PLAN_OPTIONS[planKey];
+  if (!plan || planKey === 'unlimited') return '';
+  return isoDateOnly(addMonthsToDate(startDate, plan.months));
+}
+function generateLicenseCode(planKey='oneYear') {
+  const plan = LICENSE_PLAN_OPTIONS[planKey] || LICENSE_PLAN_OPTIONS.oneYear;
+  const churchPart = String(defaultChurch.church_name || 'CHURCH').replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'CHCH';
+  const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const timePart = Date.now().toString(36).slice(-5).toUpperCase();
+  return `LIC-${plan.code}-${churchPart}-${timePart}-${randomPart}`;
+}
+function getLicenseState(settings={}) {
+  const planKey = settings.church_license_plan || '';
+  const plan = LICENSE_PLAN_OPTIONS[planKey] || null;
+  const code = String(settings.church_license_code || '').trim();
+  const status = String(settings.church_license_status || (code ? 'Issued' : 'Not Issued'));
+  const expiresAt = String(settings.church_license_expires_at || '').trim();
+  const unlimited = planKey === 'unlimited';
+  const expiresDate = expiresAt ? new Date(`${expiresAt}T23:59:59`) : null;
+  const expired = !!(code && !unlimited && expiresDate && !Number.isNaN(expiresDate.getTime()) && expiresDate < new Date());
+  const active = !!(code && status === 'Active' && (unlimited || !expired));
+  return {
+    planKey,
+    planLabel: settings.church_license_label || plan?.label || (code ? 'Custom License' : 'No license issued'),
+    code,
+    status: expired ? 'Expired' : status,
+    issuedAt: settings.church_license_issued_at || '',
+    activatedAt: settings.church_license_activated_at || '',
+    expiresAt,
+    unlimited,
+    expired,
+    active,
+    isIssued: !!code
+  };
+}
+function isChurchAdminAccessRestricted(settings={}) {
+  const license = getLicenseState(settings);
+  if (boolValue(settings.admin_access_locked)) return true;
+  if (license.isIssued && !license.active) return true;
+  return false;
+}
+function isWholeChurchPortalRestricted(role, settings={}) {
+  return !!role && role !== 'superadmin' && isChurchAdminAccessRestricted(settings);
+}
+function canUseNavigationWhileRestricted(role, key) {
+  if (key === 'logout') return true;
+  if (role === 'admin' && key === 'license') return true;
+  return false;
+}
+function isSuspendedLicense(settings={}) {
+  return String(settings.church_license_status || '').trim().toLowerCase() === 'suspended';
+}
+function generatePassword(length=12) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+  let password = '';
+  const values = new Uint32Array(length);
+  if (window.crypto?.getRandomValues) window.crypto.getRandomValues(values);
+  for (let i = 0; i < length; i += 1) password += chars[(values[i] || Math.floor(Math.random() * chars.length)) % chars.length];
+  return password;
+}
 function escapeHtml(value='') {
   return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
@@ -738,6 +835,7 @@ function defaultData() {
     ],
     reminders: [],
     credentials: [
+      { id: '00000000-0000-4000-8000-000000000900', role: 'superadmin', linked_entity_type: '', linked_entity_id: '', username: 'superadmin', force_password_change: true, account_active: true, is_system_default: true },
       { id: '00000000-0000-4000-8000-000000000901', role: 'admin', linked_entity_type: '', linked_entity_id: '', username: 'admin', force_password_change: true, account_active: true, is_system_default: true },
       { id: '00000000-0000-4000-8000-000000000902', role: 'senior_pastor', linked_entity_type: 'minister', linked_entity_id: ID.minister1, username: 'senior.pastor', force_password_change: true, account_active: true, is_system_default: true },
       { id: '00000000-0000-4000-8000-000000000903', role: 'pastor', linked_entity_type: 'minister', linked_entity_id: ID.minister2, username: 'pastor', force_password_change: true, account_active: true, is_system_default: true },
@@ -961,6 +1059,18 @@ function OfflineBanner({ state, onSync }) {
   return <div className="no-print border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
     <div><b>{state.mode === 'online' ? 'Pending sync' : 'Local mode'}</b>{state.lastError ? ` - ${state.lastError}` : ''}{state.pendingCount ? ` - ${state.pendingCount} pending change(s)` : ''}</div>
     <button className="btn btn-outline !py-1.5" onClick={onSync}><i className="fas fa-rotate"></i>Sync Now</button>
+  </div>;
+}
+function LicenseExpiryNotice() {
+  const { data } = React.useContext(DataContext);
+  const { session } = React.useContext(SessionContext);
+  const license = getLicenseState(data.churchSettings);
+  if (!session.role || license.unlimited || !license.expiresAt || !['admin', 'superadmin'].includes(session.role)) return null;
+  const daysLeft = Math.ceil((new Date(`${license.expiresAt}T23:59:59`).getTime() - Date.now()) / 86400000);
+  if (daysLeft > 14 || daysLeft < 0) return null;
+  return <div className="no-print mx-3 md:mx-6 mt-3 rounded-2xl px-4 py-3 border border-amber-200 bg-amber-50 text-amber-900">
+    <div className="font-bold text-sm md:text-base"><i className="fas fa-triangle-exclamation mr-2"></i>License expires in {daysLeft} day{daysLeft === 1 ? '' : 's'}.</div>
+    <div className="text-xs md:text-sm mt-1 opacity-90">Renew before {formatReadableDate(license.expiresAt)} to prevent automatic access restriction.</div>
   </div>;
 }
 function Field({ label, children }) {
@@ -1820,9 +1930,13 @@ function ReportsCenter() {
 }
 function CredentialsManagement() {
   const { data, reloadData, notify } = React.useContext(DataContext);
+  const { session } = React.useContext(SessionContext);
   const emptyRecord = { id: '', role: 'member', linked_entity_id: '', username: '', password: '', force_password_change: true, account_active: true };
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState(emptyRecord);
+  const isSuperAdmin = session.role === 'superadmin';
+  const roleOptions = isSuperAdmin ? ALL_ROLE_OPTIONS : ROLE_OPTIONS;
+  const visibleCredentials = isSuperAdmin ? data.credentials : data.credentials.filter(row => row.role !== 'superadmin');
   const linkedOptions = (d, form) => {
     if (['senior_pastor', 'pastor'].includes(form.role)) return optionRows(d.ministers, 'full_name');
     if (form.role === 'finance_officer') return optionRows(d.financeOfficers, 'full_name');
@@ -1832,7 +1946,7 @@ function CredentialsManagement() {
   const linkedType = role => ['senior_pastor', 'pastor'].includes(role) ? 'minister' : role === 'finance_officer' ? 'finance_officer' : ['member', 'ministry_leader'].includes(role) ? 'member' : '';
   const startAdd = () => { setForm(emptyRecord); setOpen(true); };
   const edit = row => setForm({ ...emptyRecord, ...row, password: '' }) || setOpen(true);
-  const linkedRecordName = row => row.linked_entity_type === 'minister' ? ministerName(data, row.linked_entity_id) : row.linked_entity_type === 'finance_officer' ? nameBy(data.financeOfficers, row.linked_entity_id, 'full_name') : memberName(data, row.linked_entity_id);
+  const linkedRecordName = row => row.role === 'superadmin' ? 'Top-level maintenance' : row.role === 'admin' ? 'Church administration' : row.linked_entity_type === 'minister' ? ministerName(data, row.linked_entity_id) : row.linked_entity_type === 'finance_officer' ? nameBy(data.financeOfficers, row.linked_entity_id, 'full_name') : memberName(data, row.linked_entity_id);
   const save = async event => {
     event.preventDefault();
     try {
@@ -1863,6 +1977,10 @@ function CredentialsManagement() {
     }
   };
   const remove = async row => {
+    if (row.id === session.credentialId) {
+      notify('error', 'You cannot delete the account currently in use.');
+      return;
+    }
     if (!window.confirm(`Delete account ${row.username}?`)) return;
     try {
       const { error } = await supabaseClient.rpc('church_admin_delete_credential', { p_id: row.id });
@@ -1882,11 +2000,11 @@ function CredentialsManagement() {
   ];
   return <div className="space-y-4">
     <SectionHeader title="Accounts and Credentials" actions={<button className="btn btn-primary" onClick={startAdd}><i className="fas fa-plus"></i>Add Account</button>} />
-    <Table columns={columns} rows={data.credentials} renderActions={row => <div className="flex gap-2"><button className="btn btn-outline !py-1.5" onClick={() => edit(row)}>Edit</button><button className="btn btn-danger !py-1.5" onClick={() => remove(row)}>Delete</button></div>} />
+    <Table columns={columns} rows={visibleCredentials} renderActions={row => <div className="flex gap-2"><button className="btn btn-outline !py-1.5" onClick={() => edit(row)}>Edit</button><button className="btn btn-danger !py-1.5" disabled={row.id === session.credentialId} onClick={() => remove(row)}>Delete</button></div>} />
     <Modal open={open} title={form.id ? 'Edit Account' : 'Add Account'} onClose={() => setOpen(false)}>
       <form onSubmit={save} className="space-y-4">
         <div className="grid md:grid-cols-2 gap-4">
-          <Field label="Role"><select className="select" value={form.role} onChange={e => setForm({ ...form, role: e.target.value, linked_entity_id: '' })}>{ROLE_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
+          <Field label="Role"><select className="select" value={form.role} onChange={e => setForm({ ...form, role: e.target.value, linked_entity_id: '' })}>{roleOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
           <Field label="Linked Record"><select className="select" value={form.linked_entity_id || ''} onChange={e => setForm({ ...form, linked_entity_id: e.target.value })}><option value="">None</option>{linkedOptions(data, form).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></Field>
           <Field label="Username"><input className="input" value={form.username || ''} onChange={e => setForm({ ...form, username: e.target.value })} required /></Field>
           <Field label={form.id ? 'New Password' : 'Password'}><input className="input" type="password" value={form.password || ''} minLength={form.id ? undefined : 8} placeholder={form.id ? 'Leave blank to keep current password' : ''} onChange={e => setForm({ ...form, password: e.target.value })} required={!form.id} /></Field>
@@ -1900,6 +2018,7 @@ function CredentialsManagement() {
 }
 function SettingsManager() {
   const { data, setChurchSettings } = React.useContext(DataContext);
+  const { session } = React.useContext(SessionContext);
   const [form, setForm] = React.useState(data.churchSettings);
   React.useEffect(() => setForm(data.churchSettings), [data.churchSettings]);
   const signatureScale = Math.min(220, Math.max(70, Number(form.general_overseer_signature_scale || 135)));
@@ -1936,6 +2055,7 @@ function SettingsManager() {
         <Field label="Footer Theme"><select className="select" value={form.footer_theme_choice || 'midnight'} onChange={e => setForm({ ...form, footer_theme_choice: e.target.value })}>{Object.entries(FOOTER_THEME_OPTIONS).map(([key, t]) => <option key={key} value={key}>{t.label}</option>)}</select></Field>
         <Field label="Font"><select className="select" value={form.font_choice || 'inter'} onChange={e => setForm({ ...form, font_choice: e.target.value })}>{Object.entries(FONT_OPTIONS).map(([key, f]) => <option key={key} value={key}>{f.label}</option>)}</select></Field>
         <Field label="Platform Lock"><label className="inline-flex items-center gap-2 font-semibold"><input type="checkbox" checked={!!form.platform_access_locked} onChange={e => setForm({ ...form, platform_access_locked: e.target.checked })} /> Lock non-admin portals</label></Field>
+        {session.role === 'superadmin' && <Field label="Church Admin Lock"><label className="inline-flex items-center gap-2 font-semibold"><input type="checkbox" checked={!!form.admin_access_locked} onChange={e => setForm({ ...form, admin_access_locked: e.target.checked })} /> Lock church admin portal</label></Field>}
       </div>
       <div className="flex justify-end"><button className="btn btn-primary"><i className="fas fa-save"></i>Save Theme and Settings</button></div>
     </form>
@@ -2079,14 +2199,15 @@ function OverviewDashboard({ title='Dashboard' }) {
   </div>;
 }
 function linkedUserName(data, role, linkedId) {
+  if (role === 'superadmin') return 'Single-church master maintenance';
   if (role === 'admin') return 'Church Admin';
   if (['senior_pastor', 'pastor'].includes(role)) return ministerName(data, linkedId);
   if (role === 'finance_officer') return nameBy(data.financeOfficers, linkedId, 'full_name');
   return memberName(data, linkedId);
 }
 function roleNavItems(role) {
-  if (role === 'superadmin') return [['dashboard','Dashboard','gauge-high'], ['credentials','Admin Credentials','user-shield'], ['settings','Church Settings','gear']];
-  if (role === 'admin') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['households','Households','house'], ['ministries','Ministries','people-group'], ['ministers','Ministers','user-tie'], ['financeofficers','Finance Officers','calculator'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance','wallet'], ['events','Events','calendar-days'], ['assignments','Ministry Assignments','sitemap'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['credentials','Accounts','key'], ['chat','Chat','comments'], ['settings','Settings','gear']];
+  if (role === 'superadmin') return [['dashboard','Master Dashboard','gauge-high'], ['churchadmin','Church Admin Credentials','user-shield'], ['access','Platform Access Control','lock'], ['license','License Management','certificate'], ['credentials','All Accounts','key'], ['settings','Church Settings','gear']];
+  if (role === 'admin') return [['dashboard','Dashboard','gauge-high'], ['license','License Plan Usage','certificate'], ['members','Members','users'], ['households','Households','house'], ['ministries','Ministries','people-group'], ['ministers','Ministers','user-tie'], ['financeofficers','Finance Officers','calculator'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance','wallet'], ['events','Events','calendar-days'], ['assignments','Ministry Assignments','sitemap'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['credentials','Accounts','key'], ['chat','Chat','comments'], ['settings','Settings','gear']];
   if (role === 'senior_pastor') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance Summary','chart-pie'], ['events','Events','calendar-days'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
   if (role === 'pastor') return [['dashboard','Dashboard','gauge-high'], ['members','Members','users'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['events','Events','calendar-days'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
   if (role === 'finance_officer') return [['dashboard','Dashboard','gauge-high'], ['finance','Finance Center','wallet'], ['members','Members','users'], ['pledges','Pledges','file-signature'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
@@ -2186,12 +2307,13 @@ function AppShell() {
     <div className="min-h-screen flex flex-col">
       <Header />
       <OfflineBanner state={store.offlineState} onSync={store.flushPendingChanges} />
+      <LicenseExpiryNotice />
       <div className="flex flex-1 min-h-0">
         {session.role && <Sidebar />}
         <main className="flex-1 p-3 md:p-6 overflow-x-hidden">{!session.role ? <LoginScreen /> : <DashboardRouter />}</main>
       </div>
       <AppFooter />
-      <ForcePasswordChangeModal />
+      {session.role && session.role !== 'superadmin' && !isWholeChurchPortalRestricted(session.role, store.data.churchSettings) && <ForcePasswordChangeModal />}
       <BusyOverlay text={store.busyText} />
       <ToastStack notifications={store.notifications} onDismiss={store.dismissNotification} />
     </div>
@@ -2216,14 +2338,22 @@ function Sidebar() {
   const { data } = React.useContext(DataContext);
   const { session, activeNav, setActiveNav, logout, mobileNavOpen, setMobileNavOpen } = React.useContext(SessionContext);
   const items = [...roleNavItems(session.role), ['logout','Logout','right-from-bracket']];
+  const portalRestricted = isWholeChurchPortalRestricted(session.role, data.churchSettings);
+  const isNavLocked = key => portalRestricted && !canUseNavigationWhileRestricted(session.role, key);
   const navigate = key => {
     if (key === 'logout') return logout();
+    if (isNavLocked(key)) {
+      if (session.role === 'admin') setActiveNav('license');
+      setMobileNavOpen(false);
+      return;
+    }
     setActiveNav(key);
     setMobileNavOpen(false);
   };
   const list = <div className="space-y-1">{items.map(([key,label,icon], index) => {
     const iconColor = key === 'logout' ? 'rose' : NAV_ICON_COLORS[index % NAV_ICON_COLORS.length];
-    return <button key={key} onClick={() => navigate(key)} className={`w-full text-left px-3 py-3 rounded-xl flex items-center gap-3 transition ${activeNav === key ? 'bg-[var(--theme-primary-soft)] text-[color:var(--theme-text-strong)] font-extrabold shadow-sm' : 'hover:bg-slate-100'}`}><span className={`nav-icon-chip icon-${iconColor}`}><i className={`fas fa-${icon}`}></i></span><span className="text-sm flex-1">{label}</span></button>;
+    const locked = isNavLocked(key);
+    return <button key={key} onClick={() => navigate(key)} title={locked ? 'Locked by Super Admin platform or license control' : label} aria-disabled={locked} className={`w-full text-left px-3 py-3 rounded-xl flex items-center gap-3 transition ${activeNav === key ? 'bg-[var(--theme-primary-soft)] text-[color:var(--theme-text-strong)] font-extrabold shadow-sm' : 'hover:bg-slate-100'} ${locked ? 'opacity-45 cursor-not-allowed' : ''}`}><span className={`nav-icon-chip icon-${iconColor}`}><i className={`fas fa-${icon}`}></i></span><span className="text-sm flex-1">{label}</span>{locked && <i className="fas fa-lock text-xs"></i>}</button>;
   })}</div>;
   return <>
     {mobileNavOpen && <div className="fixed inset-0 z-40 md:hidden no-print"><div className="absolute inset-0 bg-slate-950/45" onClick={() => setMobileNavOpen(false)}></div><aside className="absolute left-0 top-0 bottom-0 w-80 max-w-[88vw] bg-white p-4 shadow-xl"><div className="font-extrabold mb-1">{ROLE_LABELS[session.role]}</div><div className="text-xs text-slate-500 mb-4">{linkedUserName(data, session.role, session.linkedId)}</div><div className="sidebar-scroll">{list}</div></aside></div>}
@@ -2319,11 +2449,88 @@ function ForcePasswordChangeModal() {
     </form>
   </Modal>;
 }
+function LicenseStatusBadge({ state }) {
+  const klass = state.active ? 'active' : state.expired || String(state.status).toLowerCase() === 'suspended' ? 'inactive' : 'neutral';
+  return <span className={`pill ${klass}`}><i className={`fas ${state.active ? 'fa-check-circle' : state.expired ? 'fa-clock' : 'fa-certificate'}`}></i>{state.status}</span>;
+}
+function LicenseSummaryCard({ settings }) {
+  const license = getLicenseState(settings);
+  const daysLeft = license.expiresAt && !license.unlimited ? Math.ceil((new Date(`${license.expiresAt}T23:59:59`).getTime() - Date.now()) / 86400000) : null;
+  const renewalBody = `License reminder for ${settings?.church_name || 'Church'}
+Plan: ${license.planLabel}
+Status: ${license.status}
+Expires: ${license.unlimited ? 'Unlimited' : formatReadableDate(license.expiresAt)}
+Code: ${license.code || 'Not issued yet'}`;
+  return <div className="card p-5 border border-slate-100">
+    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+      <div>
+        <div className="text-xs font-extrabold uppercase tracking-wider text-slate-400">Current License</div>
+        <h3 className="text-xl font-extrabold mt-1">{license.planLabel}</h3>
+        <div className="mt-2 text-sm text-slate-600">Code: <span className="font-mono font-bold text-slate-800">{license.code || 'Not issued yet'}</span></div>
+        {daysLeft !== null && daysLeft <= 14 && daysLeft >= 0 && <div className="mt-2 text-sm font-semibold text-amber-700"><i className="fas fa-clock mr-1"></i>{daysLeft} day{daysLeft === 1 ? '' : 's'} left before expiry</div>}
+      </div>
+      <div className="flex flex-col items-start md:items-end gap-2">
+        <LicenseStatusBadge state={license} />
+        <a className="btn btn-outline text-sm" href={`mailto:?subject=${encodeURIComponent('Church license renewal reminder')}&body=${encodeURIComponent(renewalBody)}`}><i className="fas fa-envelope"></i>Email Reminder</a>
+      </div>
+    </div>
+    <div className="grid md:grid-cols-3 gap-3 mt-4 text-sm">
+      <div className="rounded-xl border border-slate-200 p-3"><div className="text-xs text-slate-500">Issued</div><div className="font-semibold">{formatReadableDate(license.issuedAt)}</div></div>
+      <div className="rounded-xl border border-slate-200 p-3"><div className="text-xs text-slate-500">Activated</div><div className="font-semibold">{formatReadableDate(license.activatedAt)}</div></div>
+      <div className="rounded-xl border border-slate-200 p-3"><div className="text-xs text-slate-500">Expires</div><div className="font-semibold">{license.unlimited ? 'Unlimited' : formatReadableDate(license.expiresAt)}</div></div>
+    </div>
+  </div>;
+}
+function ChurchAdminLicenseUsage({ lockedMode=false }) {
+  const { data, setChurchSettings, notify } = React.useContext(DataContext);
+  const [codeInput, setCodeInput] = React.useState('');
+  const license = getLicenseState(data.churchSettings);
+  const restricted = isChurchAdminAccessRestricted(data.churchSettings);
+  const activate = async e => {
+    e.preventDefault();
+    const entered = String(codeInput || '').trim().toUpperCase();
+    const issued = String(license.code || '').trim().toUpperCase();
+    if (!issued) { notify('error', 'No license has been issued yet. Please contact the Super Admin.'); return; }
+    if (isSuspendedLicense(data.churchSettings)) { notify('error', 'This license code was locked by the Super Admin and cannot be reused. Please contact the Super Admin for a new license.'); return; }
+    if (!entered || entered !== issued) { notify('error', 'Invalid license code. Please enter the exact code issued by the Super Admin.'); return; }
+    if (license.expired) { notify('error', 'This license has expired. Please contact the Super Admin for renewal.'); return; }
+    const checkedAt = nowIso();
+    await setChurchSettings(current => ({
+      ...current,
+      church_license_status: 'Active',
+      church_license_activated_at: current.church_license_activated_at || checkedAt,
+      church_license_last_checked_at: checkedAt,
+      admin_access_locked: false,
+      platform_access_locked: false
+    }));
+    notify('success', 'License activated successfully. Full Church Admin access is now unlocked.');
+    setCodeInput('');
+  };
+  return <div className="space-y-5">
+    <SectionHeader title="Church Admin License Plan Usage" subtitle={lockedMode || restricted ? 'Your dashboard navigation is locked or faded until the issued license code is activated.' : 'View your current license plan and activation status.'} />
+    <LicenseSummaryCard settings={data.churchSettings} />
+    {restricted ? <div className="card p-5 border border-amber-200 bg-amber-50">
+      <div className="flex items-start gap-3">
+        <div className="icon-modern icon-amber"><i className="fas fa-lock"></i></div>
+        <div className="flex-1">
+          <h3 className="font-extrabold text-lg text-amber-900">Full dashboard access is locked</h3>
+          <p className="text-sm text-amber-800 mt-1">Enter the license code issued by the Super Admin to unlock all Church Admin navigation sections.</p>
+          <form onSubmit={activate} className="mt-4 grid md:grid-cols-[1fr_auto] gap-3">
+            <input className="input font-mono uppercase" value={codeInput} onChange={e => setCodeInput(e.target.value.toUpperCase())} placeholder="Enter license code" />
+            <button className="btn btn-primary" type="submit"><i className="fas fa-unlock"></i>Activate License</button>
+          </form>
+        </div>
+      </div>
+    </div> : <div className="card p-5 border border-emerald-200 bg-emerald-50 text-emerald-900"><div className="font-bold"><i className="fas fa-check-circle mr-2"></i>Full access is currently allowed.</div><div className="text-sm mt-1">All Church Admin dashboard navigation sections are available.</div></div>}
+  </div>;
+}
 function DashboardRouter() {
   const { session, activeNav } = React.useContext(SessionContext);
   const { data } = React.useContext(DataContext);
-  if (data.churchSettings.platform_access_locked && !['admin','superadmin'].includes(session.role)) return <OverviewDashboard title={`${ROLE_LABELS[session.role]} Portal Locked`} />;
   if (session.role === 'superadmin') return <SuperAdminDashboard activeNav={activeNav} />;
+  const restricted = isWholeChurchPortalRestricted(session.role, data.churchSettings);
+  if (session.role === 'admin' && (activeNav === 'license' || restricted)) return <ChurchAdminLicenseUsage lockedMode={restricted} />;
+  if (restricted) return <ChurchAccessLockedNotice role={session.role} />;
   if (session.role === 'admin') return <AdminDashboard activeNav={activeNav} />;
   if (session.role === 'senior_pastor') return <SeniorPastorDashboard activeNav={activeNav} />;
   if (session.role === 'pastor') return <PastorDashboard activeNav={activeNav} />;
@@ -2333,11 +2540,215 @@ function DashboardRouter() {
   return <OverviewDashboard />;
 }
 function SuperAdminDashboard({ activeNav }) {
+  if (activeNav === 'access') return <SuperAdminAccessPanel />;
+  if (activeNav === 'churchadmin') return <SuperAdminChurchAdminCredentialPanel />;
+  if (activeNav === 'license') return <SuperAdminLicensePanel />;
   if (activeNav === 'credentials') return <CredentialsManagement />;
   if (activeNav === 'settings') return <SettingsManager />;
-  return <OverviewDashboard title="Super Admin Dashboard" />;
+  return <SuperAdminMaintenanceDashboard />;
+}
+function ChurchAccessLockedNotice({ role }) {
+  return <div className="max-w-3xl mx-auto space-y-4">
+    <SectionHeader title={`${ROLE_LABELS[role] || 'User'} Portal Locked`} subtitle="A Super Admin has temporarily disabled this portal for maintenance. Please contact the church office or wait until access is restored." />
+    <div className="card p-6 border-amber-200 bg-amber-50">
+      <div className="flex items-start gap-4">
+        <div className="icon-modern icon-amber"><i className="fas fa-lock"></i></div>
+        <div>
+          <h3 className="font-extrabold text-slate-900">Access is currently restricted</h3>
+          <p className="text-sm text-slate-600 mt-2">Your login is valid, but the church system is under top-level maintenance. The Super Admin can unlock the portal from Access Control.</p>
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+function SuperAdminMaintenanceDashboard() {
+  const { data } = React.useContext(DataContext);
+  const { setActiveNav } = React.useContext(SessionContext);
+  const license = getLicenseState(data.churchSettings);
+  const restricted = isChurchAdminAccessRestricted(data.churchSettings);
+  const adminCredential = data.credentials.find(row => row.role === 'admin') || {};
+  return <div className="space-y-5">
+    <SectionHeader
+      title="Super Admin Master Dashboard"
+      subtitle="Platform-level control for Church Admin access, licensing, and Church Admin credentials for this one church."
+      actions={<>
+        <button className="btn btn-outline" onClick={() => setActiveNav('churchadmin')}><i className="fas fa-user-shield"></i>Church Admin</button>
+        <button className="btn btn-outline" onClick={() => setActiveNav('access')}><i className="fas fa-lock"></i>Access Control</button>
+        <button className="btn btn-outline" onClick={() => setActiveNav('license')}><i className="fas fa-certificate"></i>License</button>
+      </>}
+    />
+    <div className="grid-fit">
+      <StatCard label="Platform Access" value={restricted ? 'Locked' : 'Unlocked'} icon={restricted ? 'lock' : 'unlock'} accent={restricted ? 'rose' : 'emerald'} />
+      <StatCard label="License Status" value={license.status} icon="certificate" accent={license.active ? 'emerald' : 'amber'} />
+      <StatCard label="License Plan" value={license.planLabel} icon="calendar-check" accent="blue" />
+      <StatCard label="Church Admin Username" value={adminCredential.username || 'Not set'} icon="user-shield" accent="purple" />
+    </div>
+    <SuperAdminAccessPanel embedded />
+    <SuperAdminLicensePanel embedded />
+    <SuperAdminChurchAdminCredentialPanel embedded />
+  </div>;
+}
+function SuperAdminChurchAdminCredentialPanel({ embedded=false }) {
+  const { data, reloadData, notify } = React.useContext(DataContext);
+  const adminCredential = data.credentials.find(row => row.role === 'admin') || { id: '', role: 'admin', username: 'admin', force_password_change: true, account_active: true };
+  const [form, setForm] = React.useState({ username: adminCredential.username || 'admin', password: '', force_password_change: true });
+  const [lastIssuedPassword, setLastIssuedPassword] = React.useState('');
+  React.useEffect(() => setForm(prev => ({ ...prev, username: adminCredential.username || 'admin', force_password_change: boolValue(adminCredential.force_password_change) })), [adminCredential.username, adminCredential.force_password_change]);
+  const saveAdminCredential = async (event, overridePassword='', forcePasswordOverride=null) => {
+    if (event?.preventDefault) event.preventDefault();
+    const username = String(form.username || '').trim().toLowerCase();
+    const password = overridePassword || String(form.password || '').trim();
+    if (!username) { notify('error', 'Church Admin username is required.'); return; }
+    if (!adminCredential.id && password.length < 8) { notify('error', 'New Church Admin credentials need a password of at least 8 characters.'); return; }
+    if (adminCredential.id && password && password.length < 8) { notify('error', 'New password must be at least 8 characters.'); return; }
+    try {
+      if (!supabaseClient) throw new Error('Supabase is not configured.');
+      const { error } = await supabaseClient.rpc('church_admin_save_credential', {
+        p_id: adminCredential.id || null,
+        p_role: 'admin',
+        p_linked_entity_type: null,
+        p_linked_entity_id: null,
+        p_username: username,
+        p_password: password || null,
+        p_force_password_change: forcePasswordOverride === null ? !!form.force_password_change : !!forcePasswordOverride,
+        p_account_active: true
+      });
+      if (error) throw error;
+      await reloadData({ silent: true });
+      if (password) setLastIssuedPassword(password);
+      setForm(current => ({ ...current, password: '' }));
+      notify('success', password ? `Church Admin credentials saved. New password: ${password}` : 'Church Admin credentials saved.');
+    } catch (error) {
+      notify('error', error?.message || 'Unable to save Church Admin credentials.');
+    }
+  };
+  const generateAdminCredential = () => setForm(prev => ({ ...prev, username: `churchadmin${Math.floor(Math.random() * 900 + 100)}`, password: generatePassword(), force_password_change: true }));
+  const resetAdminPassword = () => {
+    const nextPassword = generatePassword();
+    setForm(prev => ({ ...prev, password: nextPassword, force_password_change: true }));
+    saveAdminCredential(null, nextPassword, true);
+  };
+  return <div className="card p-5 space-y-4">
+    {!embedded && <SectionHeader title="Issue Church Admin Credentials" subtitle="Only the Super Admin can issue, update, or reset the Church Admin login credentials." actions={<button type="button" onClick={generateAdminCredential} className="btn btn-outline"><i className="fas fa-wand-magic-sparkles"></i>Generate Unique Credentials</button>} />}
+    {embedded && <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3"><div><h3 className="font-extrabold text-lg">Issue Church Admin Credentials</h3><p className="text-sm text-slate-500 mt-1">Create or reset the Church Admin login from Super Admin maintenance.</p></div><button type="button" onClick={generateAdminCredential} className="btn btn-outline"><i className="fas fa-wand-magic-sparkles"></i>Generate</button></div>}
+    <form onSubmit={saveAdminCredential} className="grid md:grid-cols-[1fr_1fr_220px_auto] gap-4 items-end">
+      <Field label="Church Admin Username"><input className="input" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} /></Field>
+      <Field label="New Password"><input className="input" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder={adminCredential.id ? 'Leave blank to keep current password' : 'Required for new account'} /></Field>
+      <Field label="Force Password Change"><label className="inline-flex items-center gap-2 font-semibold min-h-[42px]"><input type="checkbox" checked={!!form.force_password_change} onChange={e => setForm({ ...form, force_password_change: e.target.checked })} /> Required</label></Field>
+      <button className="btn btn-primary" type="submit">Save Credentials</button>
+    </form>
+    <div className="flex flex-wrap gap-2"><button className="btn btn-outline" type="button" onClick={resetAdminPassword}><i className="fas fa-key"></i>Reset Church Admin Password Only</button></div>
+    <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm">
+      <b>Current Church Admin:</b> {adminCredential.username || 'Not set'} <span className="mx-2">|</span> <b>Password:</b> {lastIssuedPassword ? <span className="font-mono">{lastIssuedPassword}</span> : 'Hidden for security. Reset to issue a new password.'} <span className="mx-2">|</span> <b>Force Password Change:</b> {boolValue(adminCredential.force_password_change) ? 'Yes' : 'No'}
+    </div>
+  </div>;
+}
+function SuperAdminAccessPanel({ embedded=false }) {
+  const { data, setChurchSettings, notify } = React.useContext(DataContext);
+  const license = getLicenseState(data.churchSettings);
+  const restricted = isChurchAdminAccessRestricted(data.churchSettings);
+  const setAdminLock = async locked => {
+    const checkedAt = nowIso();
+    await setChurchSettings(current => {
+      if (locked) {
+        return {
+          ...current,
+          admin_access_locked: true,
+          platform_access_locked: true,
+          church_license_status: current.church_license_code ? 'Suspended' : (current.church_license_status || defaultChurch.church_license_status),
+          church_license_activated_at: current.church_license_code ? '' : current.church_license_activated_at,
+          church_license_last_checked_at: checkedAt
+        };
+      }
+      const suspended = isSuspendedLicense(current);
+      return {
+        ...current,
+        admin_access_locked: false,
+        platform_access_locked: false,
+        church_license_plan: suspended ? '' : current.church_license_plan,
+        church_license_label: suspended ? defaultChurch.church_license_label : current.church_license_label,
+        church_license_code: suspended ? '' : current.church_license_code,
+        church_license_status: suspended ? 'Not Issued' : (current.church_license_code ? 'Active' : (current.church_license_status || defaultChurch.church_license_status)),
+        church_license_activated_at: suspended ? '' : (current.church_license_code ? (current.church_license_activated_at || checkedAt) : current.church_license_activated_at),
+        church_license_expires_at: suspended ? '' : current.church_license_expires_at,
+        church_license_last_checked_at: checkedAt
+      };
+    });
+    notify('success', locked ? 'Church Admin and all issued user portals have been locked. The current license code is suspended and cannot be reused.' : 'Church Admin and all issued user portals have been unlocked.');
+  };
+  return <div className="space-y-5">
+    {!embedded && <SectionHeader title="Super Admin Access Control" subtitle="Locking access fades and blocks Church Admin plus all issued user portal navigation. Login and logout remain available; only the Church Admin license activation section remains available." />}
+    <div className="card p-5 space-y-4">
+      <div className="grid-fit">
+        <StatCard label="Church Admin Access" value={restricted ? 'Locked' : 'Unlocked'} icon={restricted ? 'lock' : 'unlock'} accent={restricted ? 'rose' : 'emerald'} />
+        <StatCard label="License Status" value={license.status} icon="certificate" accent={license.active ? 'emerald' : 'amber'} />
+        <StatCard label="License Plan" value={license.planLabel} icon="calendar-check" accent="blue" />
+      </div>
+      <div className="flex flex-wrap gap-3">
+        <button type="button" className="btn btn-danger" onClick={() => setAdminLock(true)}><i className="fas fa-lock"></i>Lock Church Admin Full Access</button>
+        <button type="button" className="btn btn-primary" onClick={() => setAdminLock(false)}><i className="fas fa-unlock"></i>Unlock Church Admin Full Access</button>
+      </div>
+    </div>
+  </div>;
+}
+function SuperAdminLicensePanel({ embedded=false }) {
+  const { data, setChurchSettings, notify } = React.useContext(DataContext);
+  const [licensePlan, setLicensePlan] = React.useState('oneYear');
+  const issueLicense = async event => {
+    event.preventDefault();
+    const plan = LICENSE_PLAN_OPTIONS[licensePlan];
+    if (!plan) { notify('error', 'Select a valid license plan.'); return; }
+    const issuedAt = nowIso();
+    const code = generateLicenseCode(licensePlan);
+    await setChurchSettings(current => ({
+      ...current,
+      church_license_plan: licensePlan,
+      church_license_label: plan.label,
+      church_license_code: code,
+      church_license_status: 'Issued',
+      church_license_issued_at: issuedAt,
+      church_license_activated_at: '',
+      church_license_expires_at: calculateLicenseExpiryDate(licensePlan, new Date()),
+      church_license_last_checked_at: issuedAt,
+      admin_access_locked: true,
+      platform_access_locked: true
+    }));
+    notify('success', `License issued successfully. Code: ${code}`);
+  };
+  const clearLicense = async () => {
+    if (!window.confirm('Clear the current Church Admin license record?')) return;
+    await setChurchSettings(current => ({
+      ...current,
+      church_license_plan: '',
+      church_license_label: defaultChurch.church_license_label,
+      church_license_code: '',
+      church_license_status: 'Not Issued',
+      church_license_issued_at: '',
+      church_license_activated_at: '',
+      church_license_expires_at: '',
+      church_license_last_checked_at: nowIso(),
+      admin_access_locked: false,
+      platform_access_locked: false
+    }));
+    notify('success', 'Church Admin license record cleared.');
+  };
+  return <div className="space-y-4">
+    {!embedded && <SectionHeader title="License Management" subtitle="Choose a license plan and generate the code the Church Admin must activate under License Plan Usage." />}
+    <LicenseSummaryCard settings={data.churchSettings} />
+    <div className="card p-5 space-y-4">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+        <div><h3 className="font-extrabold text-lg">Issue License for Church Admin Operation</h3><p className="text-sm text-slate-500 mt-1">Issuing a new license locks full access until the Church Admin enters the generated code.</p></div>
+      </div>
+      <form onSubmit={issueLicense} className="grid md:grid-cols-[1fr_auto] gap-4 items-end">
+        <Field label="License Plan"><select className="select" value={licensePlan} onChange={e => setLicensePlan(e.target.value)}>{Object.entries(LICENSE_PLAN_OPTIONS).map(([key, plan]) => <option key={key} value={key}>{plan.label}</option>)}</select></Field>
+        <button type="submit" className="btn btn-primary"><i className="fas fa-certificate"></i>Generate and Issue License</button>
+      </form>
+      <div className="flex flex-wrap gap-2"><button type="button" className="btn btn-outline" onClick={clearLicense}><i className="fas fa-trash"></i>Clear License</button></div>
+    </div>
+  </div>;
 }
 function AdminDashboard({ activeNav }) {
+  if (activeNav === 'license') return <ChurchAdminLicenseUsage />;
   if (activeNav === 'members') return <MembersManagement />;
   if (activeNav === 'households') return <HouseholdsManagement />;
   if (activeNav === 'ministries') return <MinistriesManagement />;
