@@ -1651,6 +1651,38 @@ function DataProvider({ children }) {
     } catch (_) {}
   }, [data]);
 
+  const clearActivityLogs = React.useCallback(async () => {
+    const session = currentSessionSnapshot();
+    if ((session.role || activeSessionRole) !== 'superadmin') {
+      notify('error', 'Only the Super Admin can clear the activity log.');
+      return false;
+    }
+    const previousLogs = safeArray(data.auditLogs);
+    setBusyText('Clearing activity log...');
+    try {
+      if (!supabaseClient || !hasActiveSessionToken()) throw new Error('Supabase session is not available.');
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Internet connection lost. Please reconnect before clearing the activity log.');
+      const ids = previousLogs.map(row => row.id).filter(Boolean);
+      if (ids.length) await deleteRowsInChunks(TABLES.auditLogs, ids);
+      const nextData = normalizeData({ ...data, auditLogs: [] });
+      setData(nextData);
+      await persistOffline(nextData);
+      const pending = await loadPendingChanges();
+      setOfflineState(state => ({ ...state, mode: 'online', pendingCount: pending.length, lastSyncAt: nowIso(), lastError: '' }));
+      notify('success', 'Activity log cleared successfully.');
+      return true;
+    } catch (error) {
+      const restoredData = normalizeData({ ...data, auditLogs: previousLogs });
+      setData(restoredData);
+      await persistOffline(restoredData);
+      setOfflineState(state => ({ ...state, lastError: error?.message || 'Activity log clear failed.' }));
+      notify('error', error?.message || 'Activity log clear failed.');
+      return false;
+    } finally {
+      setBusyText('');
+    }
+  }, [data, notify]);
+
   const createBackupRecord = React.useCallback(async ({ backupName='', selectedKeys=RESTORE_COLLECTION_KEYS, backupType='manual', download=true } = {}) => {
     const session = currentSessionSnapshot();
     const selected = safeArray(selectedKeys).filter(key => BACKUP_COLLECTION_KEYS.includes(key));
@@ -1711,7 +1743,7 @@ function DataProvider({ children }) {
     return true;
   }, [data, notify, logActivity]);
 
-  const value = { data, loaded, updateCollection, setChurchSettings, reloadData, notify, notifications, dismissNotification, busyText, offlineState, flushPendingChanges, setPresenceStatus, logActivity, createBackupRecord, restoreFromBackup };
+  const value = { data, loaded, updateCollection, setChurchSettings, reloadData, notify, notifications, dismissNotification, busyText, offlineState, flushPendingChanges, setPresenceStatus, logActivity, clearActivityLogs, createBackupRecord, restoreFromBackup };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }
 
@@ -2728,10 +2760,21 @@ function NotificationCenter() {
   </div>;
 }
 function ActivityLogCenter() {
-  const { data } = React.useContext(DataContext);
-  const rows = safeArray(data.auditLogs).sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const { data, clearActivityLogs } = React.useContext(DataContext);
+  const { session } = React.useContext(SessionContext);
+  const [clearing, setClearing] = React.useState(false);
+  const rows = safeArray(data.auditLogs)
+    .filter(row => session.role === 'superadmin' || String(row.actor_role || '').toLowerCase() !== 'superadmin')
+    .sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const clearLogs = async () => {
+    if (session.role !== 'superadmin' || clearing) return;
+    if (!window.confirm('Clear all activity log records? This cannot be undone.')) return;
+    setClearing(true);
+    try { await clearActivityLogs(); }
+    finally { setClearing(false); }
+  };
   return <div className="space-y-4">
-    <SectionHeader title="Activity Log" />
+    <SectionHeader title="Activity Log" actions={session.role === 'superadmin' ? <button type="button" className="btn btn-danger" onClick={clearLogs} disabled={clearing || !rows.length}><i className={`fas ${clearing ? 'fa-spinner fa-spin' : 'fa-trash'}`}></i>{clearing ? 'Clearing' : 'Clear Activity Log'}</button> : null} />
     <div className="grid-fit">
       <StatCard label="Tracked Actions" value={rows.length} icon="clock-rotate-left" />
       <StatCard label="Today" value={rows.filter(row => String(row.created_at || '').slice(0,10) === today()).length} icon="calendar-day" accent="blue" />
@@ -3368,7 +3411,7 @@ function linkedUserName(data, role, linkedId) {
   return memberName(data, linkedId);
 }
 function roleNavItems(role) {
-  if (role === 'superadmin') return [['dashboard','Master Dashboard','gauge-high'], ['leadership','Leadership','chart-line'], ['qr','QR Attendance','qrcode'], ['import','Bulk Import','file-import'], ['communication','Communication','paper-plane'], ['churchadmin','Church Admin Credentials','user-shield'], ['access','Platform Access Control','lock'], ['license','License Management','certificate'], ['credentials','All Accounts','key'], ['backup','Backup and Restore','database'], ['audit','Activity Log','clock-rotate-left'], ['notifications','Notifications','bell'], ['settings','Church Settings','gear']];
+  if (role === 'superadmin') return [['dashboard','Master Dashboard','gauge-high'], ['churchadmin','Church Admin Credentials','user-shield'], ['access','Platform Access Control','lock'], ['license','License Management','certificate'], ['credentials','All Accounts','key'], ['backup','Backup and Restore','database'], ['audit','Activity Log','clock-rotate-left'], ['settings','Church Settings','gear']];
   if (role === 'admin') return [['dashboard','Dashboard','gauge-high'], ['leadership','Leadership','chart-line'], ['qr','QR Attendance','qrcode'], ['import','Bulk Import','file-import'], ['communication','Communication','paper-plane'], ['license','License Plan Usage','certificate'], ['members','Members','users'], ['households','Households','house'], ['ministries','Ministries','people-group'], ['ministers','Ministers','user-tie'], ['financeofficers','Finance Officers','calculator'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance','wallet'], ['events','Events','calendar-days'], ['assignments','Ministry Assignments','sitemap'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['notifications','Notifications','bell'], ['reports','Reports','chart-column'], ['backup','Backup and Restore','database'], ['audit','Activity Log','clock-rotate-left'], ['credentials','Accounts','key'], ['chat','Chat','comments'], ['settings','Settings','gear']];
   if (role === 'senior_pastor') return [['dashboard','Dashboard','gauge-high'], ['leadership','Leadership','chart-line'], ['qr','QR Attendance','qrcode'], ['communication','Communication','paper-plane'], ['members','Members','users'], ['services','Services','church'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['finance','Finance Summary','chart-pie'], ['events','Events','calendar-days'], ['documents','Documents','folder-open'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['notifications','Notifications','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
   if (role === 'pastor') return [['dashboard','Dashboard','gauge-high'], ['leadership','Leadership','chart-line'], ['qr','QR Attendance','qrcode'], ['communication','Communication','paper-plane'], ['members','Members','users'], ['attendance','Attendance','clipboard-check'], ['visitors','Visitors','address-card'], ['care','Prayer Requests','hands-praying'], ['visits','Pastoral Visits','handshake'], ['welfare','Welfare','hand-holding-heart'], ['events','Events','calendar-days'], ['certificates','Certificates','certificate'], ['announcements','Announcements','bullhorn'], ['reminders','Reminders','bell'], ['notifications','Notifications','bell'], ['reports','Reports','chart-column'], ['chat','Chat','comments']];
@@ -3734,17 +3777,12 @@ function DashboardRouter() {
   return <OverviewDashboard />;
 }
 function SuperAdminDashboard({ activeNav }) {
-  if (activeNav === 'leadership') return <LeadershipDashboard />;
-  if (activeNav === 'qr') return <QrAttendanceCenter />;
-  if (activeNav === 'import') return <BulkImportCenter />;
-  if (activeNav === 'communication') return <CommunicationCenter />;
   if (activeNav === 'access') return <SuperAdminAccessPanel />;
   if (activeNav === 'churchadmin') return <SuperAdminChurchAdminCredentialPanel />;
   if (activeNav === 'license') return <SuperAdminLicensePanel />;
   if (activeNav === 'credentials') return <CredentialsManagement />;
   if (activeNav === 'backup') return <BackupRestoreCenter />;
   if (activeNav === 'audit') return <ActivityLogCenter />;
-  if (activeNav === 'notifications') return <NotificationCenter />;
   if (activeNav === 'settings') return <SettingsManager />;
   return <SuperAdminMaintenanceDashboard />;
 }
