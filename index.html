@@ -12,20 +12,14 @@
   <meta property="og:site_name" content="Land of Dunamis Chapel" />
   <meta property="og:title" content="Land of Dunamis Chapel | Church Management System" />
   <meta property="og:description" content="Secure church management portal for Land of Dunamis Chapel." />
-  <meta property="og:image" content="dunamis-chapel-icon-512.png?v=20260517-logo" />
+  <meta property="og:image" content="church-share-preview.svg" />
   <meta property="og:image:alt" content="Land of Dunamis Chapel church logo and system preview" />
   <meta property="og:locale" content="en_US" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Land of Dunamis Chapel | Church Management System" />
   <meta name="twitter:description" content="Secure church management portal for Land of Dunamis Chapel." />
-  <meta name="twitter:image" content="dunamis-chapel-icon-512.png?v=20260517-logo" />
-  <link id="app-favicon" rel="icon" type="image/png" sizes="192x192" href="dunamis-chapel-icon-192.png?v=20260517-logo" />
-  <link rel="shortcut icon" href="favicon.ico?v=20260517-logo" />
-  <link rel="icon" type="image/png" sizes="32x32" href="dunamis-chapel-icon-32.png?v=20260517-logo" />
-  <link rel="icon" type="image/png" sizes="192x192" href="dunamis-chapel-icon-192.png?v=20260517-logo" />
-  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=20260517-logo" />
-  <meta name="msapplication-TileColor" content="#4b148c" />
-  <meta name="msapplication-TileImage" content="dunamis-chapel-icon-512.png?v=20260517-logo" />
+  <meta name="twitter:image" content="church-share-preview.svg" />
+  <link id="app-favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2218%22 fill=%22%230f766e%22/%3E%3Cpath d=%22M32 12v40M22 22h20%22 stroke=%22white%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M16 52h32%22 stroke=%22%23facc15%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
@@ -783,15 +777,15 @@ function setHeadTag(selector, attrName, value) {
 }
 function absolutePreviewUrl(url='') {
   const raw = String(url || '').trim();
-  const safeRaw = raw && !raw.startsWith('data:') ? raw : 'dunamis-chapel-icon-512.png?v=20260517-logo';
+  const safeRaw = raw && !raw.startsWith('data:') ? raw : 'church-share-preview.svg';
   try { return new URL(safeRaw, window.location.href).href; }
-  catch (_) { return 'dunamis-chapel-icon-512.png?v=20260517-logo'; }
+  catch (_) { return 'church-share-preview.svg'; }
 }
 function updateSocialPreviewMeta(settings={}) {
   const churchName = settings.church_name || 'Land of Dunamis Chapel';
   const title = `${churchName} | Church Management System`;
   const description = `Secure church management portal for ${churchName}.`;
-  const imageUrl = absolutePreviewUrl(settings.logo_url || 'dunamis-chapel-icon-512.png?v=20260517-logo');
+  const imageUrl = absolutePreviewUrl(settings.logo_url || 'church-share-preview.svg');
   document.title = title;
   setHeadTag('meta[name="description"]', 'content', `${description} Manage members, attendance, giving, prayer care, events, certificates, and church administration.`);
   setHeadTag('meta[name="theme-color"]', 'content', settings.primary_color || settings.theme_primary || '#0f766e');
@@ -994,11 +988,7 @@ function normalizeData(raw={}) {
   COLLECTION_KEYS.forEach(key => { base[key] = []; });
   const merged = { ...base, ...raw };
   merged.churchSettings = ensureDailyVerseSettings({ ...defaultChurch, ...(raw.churchSettings || raw.church_settings || {}) });
-  COLLECTION_KEYS.forEach(key => {
-    merged[key] = key === 'auditLogs'
-      ? safeArray(raw[key]).filter(row => !isSuperAdminActivityLogRow(row))
-      : safeArray(raw[key]);
-  });
+  COLLECTION_KEYS.forEach(key => { merged[key] = safeArray(raw[key]); });
   merged.presence = {};
   safeArray(merged.presenceRows).forEach(row => {
     const key = presenceKey(row.role, row.linked_entity_id);
@@ -1151,25 +1141,6 @@ function actorDisplayName(data, session={}) {
   const username = session.username || '';
   const linkedName = role ? linkedUserName(data, role, linkedId) : '';
   return [linkedName, username ? `@${username}` : ''].filter(Boolean).join(' ');
-}
-function isSuperAdminActivityLogRow(row={}) {
-  const role = String(row.actor_role || row.role || '').trim().toLowerCase();
-  const username = String(row.actor_username || row.username || '').trim().toLowerCase();
-  const actorName = String(row.actor_name || row.user || '').trim().toLowerCase();
-  return role === 'superadmin'
-    || username === 'superadmin'
-    || actorName.includes('@superadmin')
-    || actorName.includes('single-church master maintenance')
-    || actorName.includes('single-church master maintainance')
-    || actorName.includes('single church master maintenance')
-    || actorName.includes('single church master maintainance')
-    || actorName.includes('master maintenance')
-    || actorName.includes('master maintainance');
-}
-function isCurrentSessionSuperAdmin(session={}) {
-  const role = String(session.role || activeSessionRole || '').trim().toLowerCase();
-  const username = String(session.username || '').trim().toLowerCase();
-  return role === 'superadmin' || username === 'superadmin';
 }
 function describeRecordForAudit(key, row={}) {
   if (!row) return '';
@@ -1526,29 +1497,27 @@ function DataProvider({ children }) {
         const audit = summarizeCollectionChange(key, prevItems, nextItems);
         if (audit.action !== 'view') {
           const session = currentSessionSnapshot();
-          if (!isCurrentSessionSuperAdmin(session)) {
-            const payload = {
-              id: uid(),
-              action: audit.action,
-              area: COLLECTION_LABELS[key] || key,
-              record_table: TABLES[key] || key,
-              record_id: audit.record_id || '',
-              record_label: audit.record_label || '',
-              actor_role: session.role || activeSessionRole || null,
-              actor_username: session.username || '',
-              actor_linked_entity_id: session.linkedId || null,
-              actor_name: actorDisplayName(nextData, session),
-              details: audit.details,
-              created_at: nowIso()
-            };
-            setData(prev => {
-              const mergedRows = [payload, ...safeArray(prev.auditLogs)].filter(row => !isSuperAdminActivityLogRow(row)).slice(0, 1000);
-              const mergedData = normalizeData({ ...prev, auditLogs: mergedRows });
-              persistOffline(mergedData).catch(() => {});
-              return mergedData;
-            });
-            try { if (supabaseClient && hasActiveSessionToken() && canSyncCollectionKey('auditLogs')) await upsertRowsInChunks(TABLES.auditLogs, [payload], { onConflict: 'id' }); } catch (_) {}
-          }
+          const payload = {
+            id: uid(),
+            action: audit.action,
+            area: COLLECTION_LABELS[key] || key,
+            record_table: TABLES[key] || key,
+            record_id: audit.record_id || '',
+            record_label: audit.record_label || '',
+            actor_role: session.role || activeSessionRole || null,
+            actor_username: session.username || '',
+            actor_linked_entity_id: session.linkedId || null,
+            actor_name: actorDisplayName(nextData, session),
+            details: audit.details,
+            created_at: nowIso()
+          };
+          setData(prev => {
+            const mergedRows = [payload, ...safeArray(prev.auditLogs)].slice(0, 1000);
+            const mergedData = normalizeData({ ...prev, auditLogs: mergedRows });
+            persistOffline(mergedData).catch(() => {});
+            return mergedData;
+          });
+          try { if (supabaseClient && hasActiveSessionToken() && canSyncCollectionKey('auditLogs')) await upsertRowsInChunks(TABLES.auditLogs, [payload], { onConflict: 'id' }); } catch (_) {}
         }
       }
       setBusyText('');
@@ -1658,7 +1627,6 @@ function DataProvider({ children }) {
 
   const logActivity = React.useCallback(async (entry={}) => {
     const session = currentSessionSnapshot();
-    if (isCurrentSessionSuperAdmin(session)) return;
     const payload = {
       id: entry.id || uid(),
       action: entry.action || 'update',
@@ -1674,8 +1642,7 @@ function DataProvider({ children }) {
       created_at: entry.created_at || nowIso()
     };
     setData(prev => {
-      const nextRows = [payload, ...safeArray(prev.auditLogs)].filter(row => !isSuperAdminActivityLogRow(row)).slice(0, 1000);
-      const nextData = normalizeData({ ...prev, auditLogs: nextRows });
+      const nextData = normalizeData({ ...prev, auditLogs: [payload, ...safeArray(prev.auditLogs)].slice(0, 1000) });
       persistOffline(nextData).catch(() => {});
       return nextData;
     });
@@ -2797,7 +2764,7 @@ function ActivityLogCenter() {
   const { session } = React.useContext(SessionContext);
   const [clearing, setClearing] = React.useState(false);
   const rows = safeArray(data.auditLogs)
-    .filter(row => !isSuperAdminActivityLogRow(row))
+    .filter(row => session.role === 'superadmin' || String(row.actor_role || '').toLowerCase() !== 'superadmin')
     .sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)));
   const clearLogs = async () => {
     if (session.role !== 'superadmin' || clearing) return;
@@ -4261,7 +4228,7 @@ function App() {
 if (['http:', 'https:'].includes(window.location.protocol)) {
   const manifestLink = document.createElement('link');
   manifestLink.rel = 'manifest';
-  manifestLink.href = 'manifest.webmanifest?v=20260517-logo';
+  manifestLink.href = 'manifest.webmanifest';
   document.head.appendChild(manifestLink);
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {

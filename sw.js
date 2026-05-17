@@ -1,14 +1,8 @@
-const CACHE_NAME = 'land-dunamis-cms-2026-05-17-taskbar-logo-fix';
+const CACHE_NAME = 'land-dunamis-cms-2026-05-16-smart-ops';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './favicon.ico',
-  './apple-touch-icon.png',
-  './dunamis-chapel-icon-192.png',
-  './dunamis-chapel-icon-512.png',
-  './dunamis-chapel-maskable-192.png',
-  './dunamis-chapel-maskable-512.png',
   './church-icon-192.png',
   './church-icon-512.png'
 ];

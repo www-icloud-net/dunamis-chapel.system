@@ -2,37 +2,14 @@
   "name": "Land of Dunamis Chapel CMS",
   "short_name": "Dunamis CMS",
   "description": "Church management system for Land of Dunamis Chapel.",
-  "id": "./index.html",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#4b148c",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f766e",
   "orientation": "portrait-primary",
   "icons": [
-    {
-      "src": "dunamis-chapel-icon-192.png?v=20260517-logo",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "dunamis-chapel-maskable-192.png?v=20260517-logo",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "dunamis-chapel-icon-512.png?v=20260517-logo",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "dunamis-chapel-maskable-512.png?v=20260517-logo",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    }
+    { "src": "church-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "church-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }
