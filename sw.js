@@ -1,8 +1,20 @@
-const CACHE_NAME = 'land-dunamis-cms-2026-05-17-pwa-social-preview';
+const CACHE_NAME = 'land-dunamis-cms-2026-05-17-shortcut-logo-fix';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
+  './favicon.ico',
+  './church-app-icon-48.png',
+  './church-app-icon-72.png',
+  './church-app-icon-96.png',
+  './church-app-icon-128.png',
+  './church-app-icon-144.png',
+  './church-app-icon-152.png',
+  './church-app-icon-180.png',
+  './church-app-icon-192.png',
+  './church-app-icon-384.png',
+  './church-app-icon-512.png',
+  './church-app-icon-maskable-512.png',
   './church-icon-192.png',
   './church-icon-512.png',
   './church-share-preview.png'
