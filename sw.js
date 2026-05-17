@@ -1,10 +1,11 @@
-const CACHE_NAME = 'land-dunamis-cms-2026-05-16-smart-ops';
+const CACHE_NAME = 'land-dunamis-cms-2026-05-17-pwa-social-preview';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './church-icon-192.png',
-  './church-icon-512.png'
+  './church-icon-512.png',
+  './church-share-preview.png'
 ];
 
 self.addEventListener('install', event => {

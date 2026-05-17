@@ -4,22 +4,36 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover" />
   <title>Land of Dunamis Chapel | Church Management System</title>
+  <meta name="application-name" content="Land of Dunamis Chapel" />
   <meta name="description" content="Land of Dunamis Chapel secure church management system for members, attendance, giving, prayer care, events, certificates, and church administration." />
   <meta name="theme-color" content="#0f766e" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Dunamis CMS" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="msapplication-TileColor" content="#0f766e" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Land of Dunamis Chapel" />
   <meta property="og:title" content="Land of Dunamis Chapel | Church Management System" />
   <meta property="og:description" content="Secure church management portal for Land of Dunamis Chapel." />
-  <meta property="og:image" content="church-share-preview.svg" />
+  <meta property="og:url" content="./" />
+  <meta property="og:image" content="church-share-preview.png" />
+  <meta property="og:image:secure_url" content="church-share-preview.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
   <meta property="og:image:alt" content="Land of Dunamis Chapel church logo and system preview" />
   <meta property="og:locale" content="en_US" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Land of Dunamis Chapel | Church Management System" />
   <meta name="twitter:description" content="Secure church management portal for Land of Dunamis Chapel." />
-  <meta name="twitter:image" content="church-share-preview.svg" />
-  <link id="app-favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2218%22 fill=%22%230f766e%22/%3E%3Cpath d=%22M32 12v40M22 22h20%22 stroke=%22white%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M16 52h32%22 stroke=%22%23facc15%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3C/svg%3E" />
+  <meta name="twitter:image" content="church-share-preview.png" />
+  <meta name="twitter:image:alt" content="Land of Dunamis Chapel church logo and system preview" />
+  <link id="app-manifest" rel="manifest" href="manifest.webmanifest" />
+  <link id="app-favicon" rel="icon" type="image/png" href="church-icon-192.png" />
+  <link rel="apple-touch-icon" href="church-icon-192.png" />
+  <link rel="apple-touch-icon" sizes="512x512" href="church-icon-512.png" />
+  <link rel="shortcut icon" href="church-icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
@@ -202,7 +216,12 @@ let activeSessionToken = '';
 let activeSessionRole = '';
 let supabaseClient = createSupabaseClient();
 const publicSupabaseClient = createSupabaseClient();
-const APP_VERSION = '2026.05.16.smart-ops';
+const APP_VERSION = '2026.05.17.pwa-social-preview';
+const STATIC_CHURCH_LOGO_192 = 'church-icon-192.png';
+const STATIC_CHURCH_LOGO_512 = 'church-icon-512.png';
+const STATIC_SHARE_PREVIEW = 'church-share-preview.png';
+let dynamicManifestObjectUrl = '';
+
 function setSupabaseSessionToken(token='') {
   activeSessionToken = String(token || '');
   supabaseClient = createSupabaseClient(activeSessionToken);
@@ -530,7 +549,7 @@ const defaultChurch = {
   address: 'QA775 Kwasi Gyenaye Ln, Koforidua',
   contact: '+233244998183',
   location: 'Asokore Dabi Asem',
-  logo_url: '',
+  logo_url: STATIC_CHURCH_LOGO_512,
   theme_choice: 'teal',
   header_theme_choice: 'softWhite',
   footer_theme_choice: 'midnight',
@@ -773,31 +792,101 @@ function nextSequence(rows, key, start=1) {
 }
 function setHeadTag(selector, attrName, value) {
   const tag = document.head.querySelector(selector);
-  if (tag && value) tag.setAttribute(attrName, value);
+  if (tag && value !== undefined && value !== null && value !== '') tag.setAttribute(attrName, value);
 }
-function absolutePreviewUrl(url='') {
+function setOrCreateHeadTag(tagName, selector, attrs={}) {
+  let tag = document.head.querySelector(selector);
+  if (!tag) {
+    tag = document.createElement(tagName);
+    Object.entries(attrs).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') tag.setAttribute(key, value);
+    });
+    document.head.appendChild(tag);
+    return tag;
+  }
+  Object.entries(attrs).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') tag.setAttribute(key, value);
+  });
+  return tag;
+}
+function isShareableAssetUrl(url='') {
   const raw = String(url || '').trim();
-  const safeRaw = raw && !raw.startsWith('data:') ? raw : 'church-share-preview.svg';
+  if (!raw) return false;
+  if (/^(data|blob):/i.test(raw)) return false;
+  return true;
+}
+function absolutePreviewUrl(url='', fallback=STATIC_SHARE_PREVIEW) {
+  const raw = String(url || '').trim();
+  const safeRaw = isShareableAssetUrl(raw) ? raw : fallback;
   try { return new URL(safeRaw, window.location.href).href; }
-  catch (_) { return 'church-share-preview.svg'; }
+  catch (_) { return fallback; }
+}
+function shortAppName(churchName='') {
+  const words = String(churchName || 'Dunamis CMS').replace(/\b(church|chapel|ministries|ministry|international)\b/gi, '').trim().split(/\s+/).filter(Boolean);
+  const compact = words.slice(0, 2).join(' ') || 'Dunamis CMS';
+  return compact.length <= 12 ? compact : 'Dunamis CMS';
+}
+function buildWebAppManifest(settings={}) {
+  const churchName = settings.church_name || 'Land of Dunamis Chapel';
+  const theme = THEME_OPTIONS[settings.theme_choice] || THEME_OPTIONS.teal;
+  const shareableLogo = isShareableAssetUrl(settings.logo_url || '');
+  const icon192 = absolutePreviewUrl(shareableLogo ? settings.logo_url : STATIC_CHURCH_LOGO_192, STATIC_CHURCH_LOGO_192);
+  const icon512 = absolutePreviewUrl(shareableLogo ? settings.logo_url : STATIC_CHURCH_LOGO_512, STATIC_CHURCH_LOGO_512);
+  return {
+    name: `${churchName} | Church Management System`,
+    short_name: shortAppName(churchName),
+    description: `Secure church management portal for ${churchName}.`,
+    id: new URL('./', window.location.href).href,
+    start_url: new URL('./index.html', window.location.href).href,
+    scope: new URL('./', window.location.href).href,
+    display: 'standalone',
+    display_override: ['standalone', 'minimal-ui'],
+    background_color: theme.bg || '#f8fafc',
+    theme_color: theme.primary || '#0f766e',
+    orientation: 'portrait-primary',
+    lang: 'en-US',
+    icons: [
+      { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+      { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+    ]
+  };
+}
+function updateWebAppManifest(settings={}) {
+  if (!['http:', 'https:'].includes(window.location.protocol) || !window.Blob || !window.URL?.createObjectURL) return;
+  const manifest = buildWebAppManifest(settings);
+  const manifestBlob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/manifest+json' });
+  const manifestUrl = URL.createObjectURL(manifestBlob);
+  const manifestLink = setOrCreateHeadTag('link', 'link[rel="manifest"]', { id: 'app-manifest', rel: 'manifest', href: manifestUrl });
+  manifestLink.href = manifestUrl;
+  if (dynamicManifestObjectUrl) URL.revokeObjectURL(dynamicManifestObjectUrl);
+  dynamicManifestObjectUrl = manifestUrl;
 }
 function updateSocialPreviewMeta(settings={}) {
   const churchName = settings.church_name || 'Land of Dunamis Chapel';
   const title = `${churchName} | Church Management System`;
   const description = `Secure church management portal for ${churchName}.`;
-  const imageUrl = absolutePreviewUrl(settings.logo_url || 'church-share-preview.svg');
+  const imageSource = isShareableAssetUrl(settings.logo_url || '') ? settings.logo_url : STATIC_SHARE_PREVIEW;
+  const imageUrl = absolutePreviewUrl(imageSource, STATIC_SHARE_PREVIEW);
   document.title = title;
+  setHeadTag('meta[name="application-name"]', 'content', churchName);
   setHeadTag('meta[name="description"]', 'content', `${description} Manage members, attendance, giving, prayer care, events, certificates, and church administration.`);
   setHeadTag('meta[name="theme-color"]', 'content', settings.primary_color || settings.theme_primary || '#0f766e');
+  setHeadTag('meta[name="apple-mobile-web-app-title"]', 'content', shortAppName(churchName));
   setHeadTag('meta[property="og:site_name"]', 'content', churchName);
   setHeadTag('meta[property="og:title"]', 'content', title);
   setHeadTag('meta[property="og:description"]', 'content', description);
-  setHeadTag('meta[property="og:image"]', 'content', imageUrl);
-  setHeadTag('meta[property="og:image:alt"]', 'content', `${churchName} church logo and system preview`);
   setHeadTag('meta[property="og:url"]', 'content', window.location.href);
+  setHeadTag('meta[property="og:image"]', 'content', imageUrl);
+  setHeadTag('meta[property="og:image:secure_url"]', 'content', imageUrl);
+  setHeadTag('meta[property="og:image:type"]', 'content', 'image/png');
+  setHeadTag('meta[property="og:image:width"]', 'content', '1200');
+  setHeadTag('meta[property="og:image:height"]', 'content', '630');
+  setHeadTag('meta[property="og:image:alt"]', 'content', `${churchName} church logo and system preview`);
   setHeadTag('meta[name="twitter:title"]', 'content', title);
   setHeadTag('meta[name="twitter:description"]', 'content', description);
   setHeadTag('meta[name="twitter:image"]', 'content', imageUrl);
+  setHeadTag('meta[name="twitter:image:alt"]', 'content', `${churchName} church logo and system preview`);
+  updateWebAppManifest(settings);
 }
 function applyTheme(settings={}) {
   const theme = THEME_OPTIONS[settings.theme_choice] || THEME_OPTIONS.teal;
@@ -820,7 +909,9 @@ function applyTheme(settings={}) {
   root.style.setProperty('--theme-font-family', font.family);
   updateSocialPreviewMeta(settings);
   const favicon = document.getElementById('app-favicon');
-  if (favicon && settings.logo_url) favicon.href = settings.logo_url;
+  const safeIcon = absolutePreviewUrl(settings.logo_url || STATIC_CHURCH_LOGO_192, STATIC_CHURCH_LOGO_192);
+  if (favicon) favicon.href = safeIcon;
+  document.querySelectorAll('link[rel="apple-touch-icon"], link[rel="shortcut icon"]').forEach(link => { link.href = safeIcon; });
 }
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -4226,10 +4317,7 @@ function App() {
 
 
 if (['http:', 'https:'].includes(window.location.protocol)) {
-  const manifestLink = document.createElement('link');
-  manifestLink.rel = 'manifest';
-  manifestLink.href = 'manifest.webmanifest';
-  document.head.appendChild(manifestLink);
+  setOrCreateHeadTag('link', 'link[rel="manifest"]', { id: 'app-manifest', rel: 'manifest', href: 'manifest.webmanifest' });
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
