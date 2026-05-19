@@ -3315,6 +3315,14 @@ function buildDeployableIndexHtml(settings={}, options={}) {
   }
   html = html.replace(/const APP_VERSION = ['"][\s\S]*?['"];?/m, `const APP_VERSION = ${jsLiteral(`generated-${cacheTag}`)};`);
   html = html.replace(/const STATIC_MANIFEST_HREF = ['"][\s\S]*?['"];?/m, `const STATIC_MANIFEST_HREF = ${jsLiteral(`manifest.webmanifest?v=${cacheTag}`)};`);
+  html = html.split(SUPABASE_URL).join(outputSupabaseUrl);
+  html = html.split(SUPABASE_ANON_KEY).join(outputSupabaseAnonKey);
+  if (html.includes(SUPABASE_URL) || html.includes(SUPABASE_ANON_KEY)) {
+    throw new Error('The current church Supabase credentials are still present in the generated index.html.');
+  }
+  if (!html.includes(outputSupabaseUrl) || !html.includes(outputSupabaseAnonKey)) {
+    throw new Error('The new church Supabase credentials were not written into the generated index.html.');
+  }
   html = html.replace(/church_name:\s*['"][\s\S]*?['"]/, `church_name: ${jsLiteral(churchName)}`);
   html = html.replace(/address:\s*['"][\s\S]*?['"]/, `address: ${jsLiteral(settings.address || '')}`);
   html = html.replace(/contact:\s*['"][\s\S]*?['"]/, `contact: ${jsLiteral(settings.contact || '')}`);
