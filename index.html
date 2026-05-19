@@ -218,8 +218,8 @@ let activeSessionToken = '';
 let activeSessionRole = '';
 let supabaseClient = createSupabaseClient();
 const publicSupabaseClient = createSupabaseClient();
-const APP_VERSION = '2026.05.17.safe-isolated-generator';
-const STATIC_MANIFEST_HREF = 'manifest.webmanifest?v=2026-05-17-generator-zip-fix';
+const APP_VERSION = '2026.05.18.church-package-save-creds-fix';
+const STATIC_MANIFEST_HREF = 'manifest.webmanifest?v=2026-05-18-church-package-save-creds-fix';
 const STATIC_CHURCH_LOGO_48 = 'church-app-icon-48.png';
 const STATIC_CHURCH_LOGO_180 = 'church-app-icon-180.png';
 const STATIC_CHURCH_LOGO_192 = 'church-app-icon-192.png';
@@ -244,6 +244,34 @@ const offlineStore = localforage.createInstance({ name: 'church_mgmt_final_v1' }
 const DATA_KEY = 'church_management_data_v1';
 const PENDING_CHANGES_KEY = 'church_management_pending_changes_v1';
 const SESSION_KEY = 'church_management_session_v1';
+const CHURCH_PACKAGE_STORAGE_KEY = 'church_new_github_package_form_v1';
+function safeStorageGet(key) { try { return localStorage.getItem(key) || ''; } catch (e) { return ''; } }
+function safeStorageSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+function readSavedChurchPackageForm() {
+  try {
+    const raw = safeStorageGet(CHURCH_PACKAGE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+function normalizeChurchPackageFormPayload(value={}) {
+  return {
+    church_name: String(value.church_name || '').trim(),
+    address: String(value.address || '').trim(),
+    contact: String(value.contact || '').trim(),
+    location: String(value.location || '').trim(),
+    logo_url: String(value.logo_url || '').trim(),
+    app_short_name: String(value.app_short_name || '').trim(),
+    supabase_url: String(value.supabase_url || '').trim(),
+    supabase_anon_key: String(value.supabase_anon_key || '').trim()
+  };
+}
+function saveChurchPackageFormPayload(value={}) {
+  const payload = normalizeChurchPackageFormPayload(value);
+  safeStorageSet(CHURCH_PACKAGE_STORAGE_KEY, JSON.stringify(payload));
+  return payload;
+}
 
 const ROLE_LABELS = {
   superadmin: 'Super Admin',
@@ -3230,6 +3258,9 @@ function buildDeployableIndexHtml(settings={}, options={}) {
   const churchName = settings.church_name || 'Church';
   const shortName = deploymentShortName(churchName, options.app_short_name);
   const theme = THEME_OPTIONS[settings.theme_choice] || THEME_OPTIONS.teal;
+  const outputSupabaseUrl = String(options.supabase_url || '').trim();
+  const outputSupabaseAnonKey = String(options.supabase_anon_key || '').trim();
+  if (!outputSupabaseUrl || !outputSupabaseAnonKey) throw new Error('Enter and save the new church Supabase Project URL and anon key before generating the package.');
   const cacheTag = `${deploymentSlug(churchName)}-${Date.now()}`;
   const cloneDoc = document.documentElement.cloneNode(true);
   cloneDoc.removeAttribute('style');
@@ -3268,9 +3299,20 @@ function buildDeployableIndexHtml(settings={}, options={}) {
   cloneDoc.querySelectorAll('link[rel="apple-touch-icon"]').forEach(link => link.setAttribute('href', `church-app-icon-180.png?v=${cacheTag}`));
   cloneDoc.querySelectorAll('link[rel="shortcut icon"]').forEach(link => link.setAttribute('href', `favicon.ico?v=${cacheTag}`));
   setCloneMeta(cloneDoc, 'meta[name="msapplication-TileImage"]', 'content', `church-app-icon-144.png?v=${cacheTag}`);
+  const supabaseUrlLine = `const SUPABASE_URL = ${jsLiteral(outputSupabaseUrl)};`;
+  const supabaseAnonKeyLine = `const SUPABASE_ANON_KEY = ${jsLiteral(outputSupabaseAnonKey)};`;
+  cloneDoc.querySelectorAll('script[type="text/babel"]').forEach(script => {
+    let code = script.textContent || '';
+    code = code.replace(/const\s+SUPABASE_URL\s*=\s*(['"`])[\s\S]*?\1\s*;/, supabaseUrlLine);
+    code = code.replace(/const\s+SUPABASE_ANON_KEY\s*=\s*(['"`])[\s\S]*?\1\s*;/, supabaseAnonKeyLine);
+    script.textContent = code;
+  });
   let html = '<!DOCTYPE html>\n' + cloneDoc.outerHTML;
-  html = html.replace(/const SUPABASE_URL = ['"][\s\S]*?['"];?/m, `const SUPABASE_URL = ${jsLiteral(options.supabase_url || SUPABASE_URL)};`);
-  html = html.replace(/const SUPABASE_ANON_KEY = ['"][\s\S]*?['"];?/m, `const SUPABASE_ANON_KEY = ${jsLiteral(options.supabase_anon_key || SUPABASE_ANON_KEY)};`);
+  html = html.replace(/const\s+SUPABASE_URL\s*=\s*(['"`])[\s\S]*?\1\s*;/m, supabaseUrlLine);
+  html = html.replace(/const\s+SUPABASE_ANON_KEY\s*=\s*(['"`])[\s\S]*?\1\s*;/m, supabaseAnonKeyLine);
+  if (!html.includes(supabaseUrlLine) || !html.includes(supabaseAnonKeyLine)) {
+    throw new Error('The new church Supabase credentials could not be injected into the generated index.html.');
+  }
   html = html.replace(/const APP_VERSION = ['"][\s\S]*?['"];?/m, `const APP_VERSION = ${jsLiteral(`generated-${cacheTag}`)};`);
   html = html.replace(/const STATIC_MANIFEST_HREF = ['"][\s\S]*?['"];?/m, `const STATIC_MANIFEST_HREF = ${jsLiteral(`manifest.webmanifest?v=${cacheTag}`)};`);
   html = html.replace(/church_name:\s*['"][\s\S]*?['"]/, `church_name: ${jsLiteral(churchName)}`);
@@ -3489,33 +3531,76 @@ function SettingsManager() {
 
 function NewChurchGitHubPackageManager() {
   const { data, notify } = React.useContext(DataContext);
-  const [packageForm, setPackageForm] = React.useState({ church_name: '', address: '', contact: '', location: '', logo_url: '', app_short_name: '', supabase_url: '', supabase_anon_key: '' });
+  const buildDefaultPackageForm = React.useCallback(() => {
+    const saved = readSavedChurchPackageForm();
+    const base = { church_name: '', address: '', contact: '', location: '', logo_url: '', app_short_name: '', supabase_url: '', supabase_anon_key: '' };
+    return saved ? { ...base, ...normalizeChurchPackageFormPayload(saved) } : base;
+  }, []);
+  const [packageForm, setPackageForm] = React.useState(buildDefaultPackageForm);
+  const [packageSaved, setPackageSaved] = React.useState(Boolean(readSavedChurchPackageForm()));
   const updatePackageField = (key, value) => setPackageForm(current => {
     const next = { ...current, [key]: value };
     if (key === 'church_name' && !current.app_short_name) next.app_short_name = shortAppName(value);
+    setPackageSaved(false);
     return next;
   });
-  const buildPackageSettingsPayload = () => {
+  const resetPackageForm = () => {
+    setPackageForm({ church_name: '', address: '', contact: '', location: '', logo_url: '', app_short_name: '', supabase_url: '', supabase_anon_key: '' });
+    safeStorageSet(CHURCH_PACKAGE_STORAGE_KEY, '');
+    setPackageSaved(false);
+    notify('info', 'New church package fields reset.');
+  };
+  const validatePackageFormInputs = (sourceForm=packageForm) => {
+    const normalized = normalizeChurchPackageFormPayload(sourceForm);
+    if (!normalized.church_name) throw new Error('Enter the new church name.');
+    if (!normalized.logo_url) throw new Error('Select the new church logo.');
+    if (!normalized.supabase_url) throw new Error('Enter the new church Supabase project URL.');
+    if (!normalized.supabase_anon_key) throw new Error('Enter the new church Supabase anon key.');
+    return normalized;
+  };
+  const savePackageDetails = ({ quiet=false } = {}) => {
+    const normalized = validatePackageFormInputs(packageForm);
+    const saved = saveChurchPackageFormPayload(normalized);
+    setPackageForm(saved);
+    setPackageSaved(true);
+    if (!quiet) notify('success', 'New church package details saved.');
+    return saved;
+  };
+  const buildPackageSettingsPayload = (sourceForm=packageForm) => {
+    const normalized = normalizeChurchPackageFormPayload(sourceForm);
     const savedCurrentChurchSettings = data.churchSettings || defaultChurch;
     const savedSignatureScale = Math.min(220, Math.max(70, Number(savedCurrentChurchSettings.general_overseer_signature_scale || 135)));
     return ensureDailyVerseSettings({
       ...savedCurrentChurchSettings,
-      church_name: String(packageForm.church_name || '').trim(),
-      address: String(packageForm.address || '').trim(),
-      contact: String(packageForm.contact || '').trim(),
-      location: String(packageForm.location || '').trim(),
-      logo_url: String(packageForm.logo_url || '').trim(),
+      church_name: normalized.church_name,
+      address: normalized.address,
+      contact: normalized.contact,
+      location: normalized.location,
+      logo_url: normalized.logo_url,
       general_overseer_signature_scale: savedSignatureScale
     });
   };
-  const buildPackageOptionsPayload = () => ({
-    app_short_name: String(packageForm.app_short_name || '').trim(),
-    supabase_url: String(packageForm.supabase_url || '').trim(),
-    supabase_anon_key: String(packageForm.supabase_anon_key || '').trim()
-  });
+  const buildPackageOptionsPayload = (sourceForm=packageForm) => {
+    const normalized = normalizeChurchPackageFormPayload(sourceForm);
+    return {
+      app_short_name: normalized.app_short_name,
+      supabase_url: normalized.supabase_url,
+      supabase_anon_key: normalized.supabase_anon_key
+    };
+  };
+  const validatePackagePayload = (sourceForm=packageForm) => {
+    const normalized = validatePackageFormInputs(sourceForm);
+    const payload = buildPackageSettingsPayload(normalized);
+    const options = buildPackageOptionsPayload(normalized);
+    if (!options.supabase_url || options.supabase_url === SUPABASE_URL) throw new Error('Enter and save the new church Supabase project URL.');
+    if (!options.supabase_anon_key || options.supabase_anon_key === SUPABASE_ANON_KEY) throw new Error('Enter and save the new church Supabase anon key.');
+    return { payload, options };
+  };
   const generateZipPackage = async () => {
     try {
-      await downloadChurchFrontendZip(buildPackageSettingsPayload(), buildPackageOptionsPayload());
+      const saved = savePackageDetails({ quiet: true });
+      const { payload, options } = validatePackagePayload(saved);
+      await downloadChurchFrontendZip(payload, options);
       notify('success', 'New church GitHub package generated.');
     } catch (error) {
       notify('error', error?.message || 'Package generation failed.');
@@ -3523,7 +3608,9 @@ function NewChurchGitHubPackageManager() {
   };
   const exportOutputFolder = async () => {
     try {
-      const result = await saveChurchFrontendOutputFolder(buildPackageSettingsPayload(), buildPackageOptionsPayload());
+      const saved = savePackageDetails({ quiet: true });
+      const { payload, options } = validatePackagePayload(saved);
+      const result = await saveChurchFrontendOutputFolder(payload, options);
       notify('success', result === 'folder' ? 'New church output folder created.' : 'New church GitHub package generated.');
     } catch (error) {
       if (error?.name === 'AbortError') return;
@@ -3537,6 +3624,7 @@ function NewChurchGitHubPackageManager() {
         <span className="icon-modern icon-indigo"><i className="fas fa-box-open"></i></span>
         <div>
           <h3 className="font-extrabold text-slate-900">New Church GitHub Package</h3>
+          {packageSaved && <div className="text-xs font-bold text-emerald-700 mt-1"><i className="fas fa-check-circle mr-1"></i>Package details saved</div>}
         </div>
       </div>
       <div className="grid md:grid-cols-2 gap-4">
@@ -3550,6 +3638,8 @@ function NewChurchGitHubPackageManager() {
         <Field label="Supabase Anon Key"><input className="input" value={packageForm.supabase_anon_key || ''} onChange={e => updatePackageField('supabase_anon_key', e.target.value)} /></Field>
       </div>
       <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" className="btn btn-secondary" onClick={resetPackageForm}><i className="fas fa-rotate-left"></i>Reset</button>
+        <button type="button" className="btn btn-outline" onClick={() => { try { savePackageDetails(); } catch (error) { notify('error', error?.message || 'Package details could not be saved.'); } }}><i className="fas fa-save"></i>Save Package Details</button>
         <button type="button" className="btn btn-outline" onClick={generateZipPackage}><i className="fas fa-file-zipper"></i>Download GitHub ZIP</button>
         <button type="button" className="btn btn-primary" onClick={exportOutputFolder}><i className="fas fa-folder-plus"></i>Create Output Folder</button>
       </div>
